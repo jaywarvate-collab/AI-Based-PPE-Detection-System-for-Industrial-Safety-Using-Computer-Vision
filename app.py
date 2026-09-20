@@ -211,20 +211,20 @@ def add_status_overlay(frame, workers):
     return frame
 
 
-def process_frame(frame, source_name, use_tracking=True):
+def process_frame(frame, source_name, use_tracking=True, confidence=0.25):
     if use_tracking:
         results = model.track(
             source=frame,
             persist=True,
             tracker="bytetrack.yaml",
-            conf=0.25,
+            conf=confidence,
             iou=0.50,
             verbose=False,
         )
     else:
         results = model.predict(
             source=frame,
-            conf=0.25,
+            conf=confidence,
             iou=0.50,
             verbose=False,
         )
@@ -451,7 +451,12 @@ def process_webcam_frame():
         return jsonify({"ok": False, "error": "Could not decode webcam frame."}), 400
 
     try:
-        annotated = process_frame(frame, "Browser Webcam", use_tracking=True)
+       annotated = process_frame(
+    frame,
+    "Browser Webcam",
+    use_tracking=True,
+    confidence=0.15
+)
         ok, buffer = cv2.imencode(
             ".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 75]
         )

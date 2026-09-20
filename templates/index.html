@@ -159,9 +159,12 @@ function setCamera(){
                 video:{width:{ideal:1280},height:{ideal:720},facingMode:"user"},
                 audio:false
             });
-            webcam.srcObject=webcamStream;
-            webcam.style.display="block";
-            feed.style.display="block";
+           webcam.srcObject=webcamStream;
+
+// Webcam is only used internally to capture frames.
+// Show the YOLO processed result instead.
+webcam.style.display="none";
+feed.style.display="block";
             cameraHint.style.display="none";
             captureAndDetect();
         }catch(err){
@@ -186,7 +189,7 @@ async function captureAndDetect(){
     }
 
     sendingFrame=true;
-    const width=640;
+    const width=768;
     const height=Math.round(width * webcam.videoHeight / webcam.videoWidth);
     webcamCanvas.width=width;
     webcamCanvas.height=height;
