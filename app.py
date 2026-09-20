@@ -450,16 +450,40 @@ def process_webcam_frame():
     if frame is None:
         return jsonify({"ok": False, "error": "Could not decode webcam frame."}), 400
 
-    try:
-       annotated = process_frame(
-    frame,
-    "Browser Webcam",
-    use_tracking=True,
-    confidence=0.15
-)
-        ok, buffer = cv2.imencode(
-            ".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 75]
+        try:
+        annotated = process_frame(
+            frame,
+            "Browser Webcam",
+            use_tracking=True,
+            confidence=0.15
         )
+
+        ok, buffer = cv2.imencode(
+            ".jpg",
+            annotated,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 75]
+        )
+
+        if not ok:
+            return jsonify({
+                "ok": False,
+                "error": "Could not encode detection result."
+            }), 500
+
+        return Response(
+            buffer.tobytes(),
+            mimetype="image/jpeg",
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+            }
+        )
+
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "error": str(exc)
+        }), 500
         if not ok:
             return jsonify({"ok": False, "error": "Could not encode detection result."}), 500
 
