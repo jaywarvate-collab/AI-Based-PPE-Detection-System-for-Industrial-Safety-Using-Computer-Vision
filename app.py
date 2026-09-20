@@ -433,6 +433,38 @@ def upload():
     return jsonify({"ok": True, "mode": "video"})
 
 
+
+@app.route("/process_webcam_frame", methods=["POST"])
+def process_webcam_frame():
+    """Process one frame captured by the user's browser webcam."""
+    if "frame" not in request.files:
+        return jsonify({"ok": False, "error": "No webcam frame received."}), 400
+
+    file = request.files["frame"]
+    data = file.read()
+    if not data:
+        return jsonify({"ok": False, "error": "Empty webcam frame."}), 400
+
+    array = __import__("numpy").frombuffer(data, dtype=__import__("numpy").uint8)
+    frame = cv2.imdecode(array, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"ok": False, "error": "Could not decode webcam frame."}), 400
+
+    try:
+        annotated = process_frame(frame, "Browser Webcam", use_tracking=True)
+        ok, buffer = cv2.imencode(
+            ".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 75]
+        )
+        if not ok:
+            return jsonify({"ok": False, "error": "Could not encode detection result."}), 500
+
+        return Response(buffer.tobytes(), mimetype="image/jpeg", headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
 @app.route("/reset_log", methods=["POST"])
 def reset_log():
     ensure_log()
@@ -450,4 +482,4 @@ def download_log():
 
 if __name__ == "__main__":
     # use_reloader=False prevents Flask debug mode from opening the webcam twice.
-    app.run(host="127.0.0.1", port=5000, debug=True, threaded=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, threaded=True, use_reloader=False)
