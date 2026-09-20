@@ -1,298 +1,1476 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
 <title>Construction Site Safety Monitor</title>
+
 <style>
-*{box-sizing:border-box}
-body{font-family:Arial,sans-serif;background:#f3f5f7;margin:0;color:#161616}
-header{background:#171717;color:#fff;padding:22px;text-align:center}
-header h1{margin:0 0 6px;font-size:30px}
-header p{margin:0;color:#ddd}
-.container{width:min(1250px,94%);margin:24px auto}
-.controls{background:#fff;padding:18px;border-radius:12px;box-shadow:0 2px 10px #00000018;margin-bottom:20px}
-.controls h2{margin-top:0}
-.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-button,.file-label{border:0;border-radius:8px;padding:11px 16px;font-weight:700;cursor:pointer;background:#222;color:#fff}
-button.secondary{background:#555}
-button.danger{background:#9b1c1c}
-button:disabled{opacity:.55;cursor:not-allowed}
-select,input[type=file]{padding:10px;border:1px solid #ccc;border-radius:8px;background:#fff}
-.status{margin-top:12px;font-size:14px;color:#555}
-.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
-.card{background:#fff;padding:20px;text-align:center;border-radius:12px;box-shadow:0 2px 10px #00000018}
-.card h3{margin:0 0 10px}
-.number{font-size:36px;font-weight:800}
-.camera{background:#111;color:#fff;padding:20px;text-align:center;border-radius:12px;margin-bottom:22px}
-.camera img,.camera video{width:100%;max-height:650px;object-fit:contain;border-radius:8px;background:#222}
-.camera video{display:none}
-.notice{background:#fff7d6;border-left:5px solid #e0a800;padding:12px;margin-bottom:20px;border-radius:6px}
-table{width:100%;background:#fff;border-collapse:collapse;box-shadow:0 2px 10px #00000012}
-th,td{padding:11px;border-bottom:1px solid #ddd;text-align:center}
-th{background:#333;color:#fff}
-.warning{color:#c00;font-weight:bold}
-#cameraHint{display:none;color:#ddd;margin:8px 0 14px}
-@media(max-width:850px){.cards{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:520px){.cards{grid-template-columns:1fr}.container{width:96%}}
-</style>
-</head>
-<body>
-<header>
-<h1>Construction Site Safety Monitor</h1>
-<p>AI-Based PPE Detection System using YOLOv8</p>
-</header>
 
-<div class="container">
-<div class="controls">
-<h2>Detection Source</h2>
-<div class="row">
-<button onclick="setCamera()">📷 Live Camera</button>
-
-<form id="uploadForm" class="row" enctype="multipart/form-data">
-<input id="fileInput" type="file" name="file" accept=".jpg,.jpeg,.png,.jfif,.mp4,.avi,.mov,.mkv,.webm" required>
-<button type="submit">⬆ Upload & Detect</button>
-</form>
-</div>
-
-<div class="row" style="margin-top:12px">
-<select id="sourceSelect">
-<option value="">-- Use a file already in source_files --</option>
-{% for source in sources %}
-<option value="{{ source }}">{{ source }}</option>
-{% endfor %}
-</select>
-<button class="secondary" onclick="useBuiltIn()">▶ Analyze Selected File</button>
-<button class="danger" onclick="resetLog()">Reset Violation History</button>
-<a id="downloadBtn" href="/download_log"><button type="button" class="secondary">Download CSV</button></a>
-</div>
-<div class="status" id="status">Source: Live Camera</div>
-</div>
-
-<div class="cards">
-<div class="card"><h3>Workers Detected</h3><div class="number" id="workers">0</div></div>
-<div class="card"><h3>PPE Safe</h3><div class="number" id="safe">0</div></div>
-<div class="card"><h3>Violations</h3><div class="number" id="violations">0</div></div>
-<div class="card"><h3>Compliance</h3><div class="number" id="compliance">0%</div></div>
-</div>
-
-<div class="notice">
-<b>How the numbers work:</b> Workers = Person detections in the current frame.
-PPE Safe = workers with no detected <b>NO-Hardhat / NO-Mask / NO-Safety Vest</b>.
-Violations = unsafe workers. Compliance = safe workers ÷ detected workers.
-</div>
-
-<div class="camera">
-<h2 id="viewTitle">LIVE PPE DETECTION</h2>
-<div id="cameraHint">Allow camera access when your browser asks for permission.</div>
-<video id="webcam" autoplay playsinline muted></video>
-<img id="videoFeed" src="" alt="Detection output">
-</div>
-
-<div id="imagePanel" style="display:none;background:#111;padding:20px;border-radius:12px;margin-bottom:22px;text-align:center">
-<h2 style="color:#fff">IMAGE RESULT</h2>
-<img id="imageResult" style="max-width:100%;max-height:650px;border-radius:8px">
-</div>
-
-<h2>Violation History</h2>
-<table>
-<thead><tr><th>Date</th><th>Time</th><th>Worker ID</th><th>Violation</th><th>Source</th></tr></thead>
-<tbody id="historyBody">
-{% if violations %}
-{% for v in violations %}
-<tr><td>{{v["Date"]}}</td><td>{{v["Time"]}}</td><td>{{v.get("Worker ID","")}}</td><td class="warning">{{v["Violation"]}}</td><td>{{v.get("Source","")}}</td></tr>
-{% endfor %}
-{% else %}
-<tr><td colspan="5">No violations recorded yet.</td></tr>
-{% endif %}
-</tbody>
-</table>
-</div>
-
-<script>
-const feed=document.getElementById("videoFeed");
-const webcam=document.getElementById("webcam");
-const imagePanel=document.getElementById("imagePanel");
-const imageResult=document.getElementById("imageResult");
-const statusEl=document.getElementById("status");
-const titleEl=document.getElementById("viewTitle");
-const cameraHint=document.getElementById("cameraHint");
-
-let webcamStream=null;
-let webcamTimer=null;
-let sendingFrame=false;
-let webcamCanvas=document.createElement("canvas");
-
-function stopBrowserCamera(){
-    if(webcamTimer){ clearTimeout(webcamTimer); webcamTimer=null; }
-    sendingFrame=false;
-    if(webcamStream){
-        webcamStream.getTracks().forEach(track=>track.stop());
-        webcamStream=null;
-    }
-    webcam.srcObject=null;
-    webcam.style.display="none";
-    cameraHint.style.display="none";
+* {
+    box-sizing: border-box;
 }
 
-function setCamera(){
-    // The camera belongs to the user's browser/device, not the Render server.
-    fetch("/set_camera",{method:"POST"})
-    .then(r=>r.json())
-    .then(async d=>{
-        if(!d.ok){ throw new Error(d.error||"Could not select camera mode."); }
+body {
+    font-family: Arial, sans-serif;
+    background: #f3f5f7;
+    margin: 0;
+    color: #161616;
+}
 
-        imagePanel.style.display="none";
-        feed.style.display="block";
-        titleEl.textContent="LIVE PPE DETECTION";
-        statusEl.textContent="Source: Browser Webcam";
-        cameraHint.style.display="block";
+header {
+    background: #171717;
+    color: white;
+    padding: 22px;
+    text-align: center;
+}
 
-        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-            alert("Your browser does not support webcam access.");
+header h1 {
+    margin: 0 0 6px;
+    font-size: 30px;
+}
+
+header p {
+    margin: 0;
+    color: #ddd;
+}
+
+.container {
+    width: min(1250px, 94%);
+    margin: 24px auto;
+}
+
+.controls {
+    background: white;
+    padding: 18px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px #00000018;
+    margin-bottom: 20px;
+}
+
+.controls h2 {
+    margin-top: 0;
+}
+
+.row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+button,
+.file-label {
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 16px;
+    font-weight: 700;
+    cursor: pointer;
+    background: #222;
+    color: white;
+}
+
+button:hover {
+    opacity: 0.9;
+}
+
+button.secondary {
+    background: #555;
+}
+
+button.danger {
+    background: #9b1c1c;
+}
+
+button.success {
+    background: #087f23;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+select,
+input[type=file] {
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background: white;
+}
+
+.status {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #555;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    text-align: center;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px #00000018;
+}
+
+.card h3 {
+    margin: 0 0 10px;
+}
+
+.number {
+    font-size: 36px;
+    font-weight: 800;
+}
+
+.camera {
+    background: #111;
+    color: white;
+    padding: 20px;
+    text-align: center;
+    border-radius: 12px;
+    margin-bottom: 22px;
+}
+
+.camera h2 {
+    margin-top: 0;
+}
+
+#webcamVideo {
+    display: none;
+}
+
+#webcamCanvas {
+    display: none;
+}
+
+#detectionOutput {
+    width: 100%;
+    max-height: 650px;
+    object-fit: contain;
+    border-radius: 8px;
+    background: #222;
+}
+
+#imagePanel {
+    background: #111;
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 22px;
+    text-align: center;
+}
+
+#imagePanel h2 {
+    color: white;
+}
+
+#imageResult {
+    max-width: 100%;
+    max-height: 650px;
+    border-radius: 8px;
+}
+
+.notice {
+    background: #fff7d6;
+    border-left: 5px solid #e0a800;
+    padding: 12px;
+    margin-bottom: 20px;
+    border-radius: 6px;
+}
+
+.webcam-status {
+    margin-top: 10px;
+    color: #ccc;
+    font-size: 14px;
+}
+
+table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+    box-shadow: 0 2px 10px #00000012;
+}
+
+th,
+td {
+    padding: 11px;
+    border-bottom: 1px solid #ddd;
+    text-align: center;
+}
+
+th {
+    background: #333;
+    color: white;
+}
+
+.warning {
+    color: #c00;
+    font-weight: bold;
+}
+
+@media(max-width:850px) {
+
+    .cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+}
+
+@media(max-width:520px) {
+
+    .cards {
+        grid-template-columns: 1fr;
+    }
+
+    .container {
+        width: 96%;
+    }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<header>
+
+<h1>Construction Site Safety Monitor</h1>
+
+<p>
+AI-Based PPE Detection System using YOLOv8
+</p>
+
+</header>
+
+
+<div class="container">
+
+
+<!-- ===================================================== -->
+<!-- CONTROLS -->
+<!-- ===================================================== -->
+
+<div class="controls">
+
+<h2>Detection Source</h2>
+
+
+<div class="row">
+
+<button
+    id="cameraButton"
+    onclick="startBrowserCamera()"
+>
+📷 Live Camera
+</button>
+
+
+<button
+    id="stopCameraButton"
+    class="danger"
+    onclick="stopBrowserCamera()"
+    disabled
+>
+⏹ Stop Camera
+</button>
+
+
+<form
+    id="uploadForm"
+    class="row"
+    enctype="multipart/form-data"
+>
+
+<input
+    id="fileInput"
+    type="file"
+    name="file"
+    accept=".jpg,.jpeg,.png,.jfif,.mp4,.avi,.mov,.mkv,.webm"
+    required
+>
+
+<button type="submit">
+⬆ Upload & Detect
+</button>
+
+</form>
+
+</div>
+
+
+<div
+    class="row"
+    style="margin-top:12px"
+>
+
+<select id="sourceSelect">
+
+<option value="">
+-- Use a file already in source_files --
+</option>
+
+{% for source in sources %}
+
+<option value="{{ source }}">
+{{ source }}
+</option>
+
+{% endfor %}
+
+</select>
+
+
+<button
+    class="secondary"
+    onclick="useBuiltIn()"
+>
+▶ Analyze Selected File
+</button>
+
+
+<button
+    class="danger"
+    onclick="resetLog()"
+>
+Reset Violation History
+</button>
+
+
+<a
+    id="downloadBtn"
+    href="/download_log"
+>
+
+<button
+    type="button"
+    class="secondary"
+>
+Download CSV
+</button>
+
+</a>
+
+</div>
+
+
+<div
+    class="status"
+    id="status"
+>
+Source: Live Camera
+</div>
+
+</div>
+
+
+
+<!-- ===================================================== -->
+<!-- STATISTICS -->
+<!-- ===================================================== -->
+
+<div class="cards">
+
+<div class="card">
+
+<h3>
+Workers Detected
+</h3>
+
+<div
+    class="number"
+    id="workers"
+>
+0
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h3>
+PPE Safe
+</h3>
+
+<div
+    class="number"
+    id="safe"
+>
+0
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h3>
+Violations
+</h3>
+
+<div
+    class="number"
+    id="violations"
+>
+0
+</div>
+
+</div>
+
+
+<div class="card">
+
+<h3>
+Compliance
+</h3>
+
+<div
+    class="number"
+    id="compliance"
+>
+0%
+</div>
+
+</div>
+
+</div>
+
+
+
+<!-- ===================================================== -->
+<!-- EXPLANATION -->
+<!-- ===================================================== -->
+
+<div class="notice">
+
+<b>How the numbers work:</b>
+
+Workers = Person detections in the current frame.
+
+PPE Safe = workers with no detected
+<b>NO-Hardhat / NO-Mask / NO-Safety Vest</b>.
+
+Violations = unsafe workers.
+
+Compliance = safe workers ÷ detected workers.
+
+</div>
+
+
+
+<!-- ===================================================== -->
+<!-- CAMERA / DETECTION -->
+<!-- ===================================================== -->
+
+<div class="camera">
+
+<h2 id="viewTitle">
+LIVE PPE DETECTION
+</h2>
+
+
+<!-- Hidden browser webcam -->
+
+<video
+    id="webcamVideo"
+    autoplay
+    playsinline
+    muted
+>
+</video>
+
+
+<!-- Hidden canvas used to capture webcam frame -->
+
+<canvas
+    id="webcamCanvas"
+>
+</canvas>
+
+
+<!-- YOLO detection result -->
+
+<img
+    id="detectionOutput"
+    alt="Detection output"
+>
+
+
+<div
+    class="webcam-status"
+    id="webcamStatus"
+>
+Click "Live Camera" to start your browser webcam.
+</div>
+
+</div>
+
+
+
+<!-- ===================================================== -->
+<!-- IMAGE RESULT -->
+<!-- ===================================================== -->
+
+<div
+    id="imagePanel"
+    style="display:none"
+>
+
+<h2>
+IMAGE RESULT
+</h2>
+
+<img
+    id="imageResult"
+    alt="Image detection result"
+>
+
+</div>
+
+
+
+<!-- ===================================================== -->
+<!-- VIOLATION HISTORY -->
+<!-- ===================================================== -->
+
+<h2>
+Violation History
+</h2>
+
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>Date</th>
+
+<th>Time</th>
+
+<th>Worker ID</th>
+
+<th>Violation</th>
+
+<th>Source</th>
+
+</tr>
+
+</thead>
+
+
+<tbody id="historyBody">
+
+{% if violations %}
+
+{% for v in violations %}
+
+<tr>
+
+<td>
+{{ v["Date"] }}
+</td>
+
+<td>
+{{ v["Time"] }}
+</td>
+
+<td>
+{{ v.get("Worker ID", "") }}
+</td>
+
+<td class="warning">
+{{ v["Violation"] }}
+</td>
+
+<td>
+{{ v.get("Source", "") }}
+</td>
+
+</tr>
+
+{% endfor %}
+
+{% else %}
+
+<tr>
+
+<td colspan="5">
+No violations recorded yet.
+</td>
+
+</tr>
+
+{% endif %}
+
+</tbody>
+
+</table>
+
+
+</div>
+
+
+
+<script>
+
+
+// ============================================================
+// ELEMENTS
+// ============================================================
+
+const video =
+    document.getElementById(
+        "webcamVideo"
+    );
+
+const canvas =
+    document.getElementById(
+        "webcamCanvas"
+    );
+
+const output =
+    document.getElementById(
+        "detectionOutput"
+    );
+
+const imagePanel =
+    document.getElementById(
+        "imagePanel"
+    );
+
+const imageResult =
+    document.getElementById(
+        "imageResult"
+    );
+
+const statusEl =
+    document.getElementById(
+        "status"
+    );
+
+const webcamStatus =
+    document.getElementById(
+        "webcamStatus"
+    );
+
+const titleEl =
+    document.getElementById(
+        "viewTitle"
+    );
+
+const cameraButton =
+    document.getElementById(
+        "cameraButton"
+    );
+
+const stopCameraButton =
+    document.getElementById(
+        "stopCameraButton"
+    );
+
+
+// ============================================================
+// CAMERA VARIABLES
+// ============================================================
+
+let webcamStream = null;
+
+let cameraRunning = false;
+
+let processingFrame = false;
+
+let cameraTimer = null;
+
+
+// ============================================================
+// START BROWSER WEBCAM
+// ============================================================
+
+async function startBrowserCamera() {
+
+    try {
+
+        stopOfflineDetection();
+
+
+        if (!navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+
+            alert(
+                "Your browser does not support webcam access."
+            );
+
             return;
         }
 
-        stopBrowserCamera();
-        try{
-            webcamStream=await navigator.mediaDevices.getUserMedia({
-                video:{width:{ideal:1280},height:{ideal:720},facingMode:"user"},
-                audio:false
-            });
-           webcam.srcObject=webcamStream;
 
-// Webcam is only used internally to capture frames.
-// Show the YOLO processed result instead.
-webcam.style.display="none";
-feed.style.display="block";
-            cameraHint.style.display="none";
-            captureAndDetect();
-        }catch(err){
-            alert("Camera access was blocked. Please allow camera permission and try again.");
-            statusEl.textContent="Camera permission required";
-            console.error(err);
-        }
-    })
-    .catch(err=>alert(err.message));
+        webcamStatus.textContent =
+            "Requesting webcam permission...";
+
+
+        webcamStream =
+            await navigator.mediaDevices.getUserMedia(
+                {
+                    video: {
+                        width: {
+                            ideal: 640
+                        },
+
+                        height: {
+                            ideal: 480
+                        },
+
+                        facingMode: "user"
+                    },
+
+                    audio: false
+                }
+            );
+
+
+        video.srcObject =
+            webcamStream;
+
+
+        await video.play();
+
+
+        cameraRunning = true;
+
+        processingFrame = false;
+
+
+        cameraButton.disabled = true;
+
+        stopCameraButton.disabled = false;
+
+
+        titleEl.textContent =
+            "LIVE PPE DETECTION";
+
+
+        statusEl.textContent =
+            "Source: Browser Webcam";
+
+
+        webcamStatus.textContent =
+            "Webcam connected. AI detection is running...";
+
+
+        output.style.display =
+            "block";
+
+
+        imagePanel.style.display =
+            "none";
+
+
+        // Start sending frames to Render
+        cameraTimer =
+            setInterval(
+                processWebcamFrame,
+                700
+            );
+
+
+        // Process first frame immediately
+        processWebcamFrame();
+
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Webcam error:",
+            error
+        );
+
+
+        webcamStatus.textContent =
+            "Could not access webcam: "
+            + error.message;
+
+
+        alert(
+            "Webcam access failed.\n\n"
+            + error.message
+        );
+
+    }
+
 }
 
-async function captureAndDetect(){
-    if(!webcamStream) return;
-    if(sendingFrame){
-        webcamTimer=setTimeout(captureAndDetect,400);
+
+// ============================================================
+// STOP BROWSER WEBCAM
+// ============================================================
+
+function stopBrowserCamera() {
+
+    cameraRunning = false;
+
+    processingFrame = false;
+
+
+    if (cameraTimer !== null) {
+
+        clearInterval(
+            cameraTimer
+        );
+
+        cameraTimer = null;
+
+    }
+
+
+    if (webcamStream) {
+
+        webcamStream
+            .getTracks()
+            .forEach(
+                track => track.stop()
+            );
+
+        webcamStream = null;
+
+    }
+
+
+    video.srcObject = null;
+
+
+    cameraButton.disabled = false;
+
+    stopCameraButton.disabled = true;
+
+
+    webcamStatus.textContent =
+        "Webcam stopped.";
+
+
+    statusEl.textContent =
+        "Source: Live Camera";
+
+
+    output.removeAttribute(
+        "src"
+    );
+
+}
+
+
+// ============================================================
+// CAPTURE + SEND WEBCAM FRAME TO YOLO
+// ============================================================
+
+async function processWebcamFrame() {
+
+    if (!cameraRunning) {
         return;
     }
 
-    if(webcam.readyState < 2){
-        webcamTimer=setTimeout(captureAndDetect,300);
+
+    if (processingFrame) {
         return;
     }
 
-    sendingFrame=true;
-    const width=768;
-    const height=Math.round(width * webcam.videoHeight / webcam.videoWidth);
-    webcamCanvas.width=width;
-    webcamCanvas.height=height;
-    const ctx=webcamCanvas.getContext("2d");
-    ctx.drawImage(webcam,0,0,width,height);
 
-    try{
-        const blob=await new Promise(resolve=>webcamCanvas.toBlob(resolve,"image/jpeg",0.72));
-        const fd=new FormData();
-        fd.append("frame",blob,"webcam.jpg");
+    if (
+        !video.videoWidth ||
+        !video.videoHeight
+    ) {
+        return;
+    }
 
-        const response=await fetch("/process_webcam_frame",{
-            method:"POST",
-            body:fd,
-            cache:"no-store"
-        });
 
-        const contentType=response.headers.get("content-type")||"";
-        if(!response.ok){
-            const errorText=contentType.includes("application/json")
-                ? ((await response.json()).error || "Detection failed.")
-                : "Detection request failed.";
-            throw new Error(errorText);
+    processingFrame = true;
+
+
+    try {
+
+        // Use a smaller frame to reduce
+        // processing time and network load.
+
+        const width = 640;
+
+        const height =
+            Math.round(
+                video.videoHeight
+                *
+                (
+                    width
+                    /
+                    video.videoWidth
+                )
+            );
+
+
+        canvas.width = width;
+
+        canvas.height = height;
+
+
+        const ctx =
+            canvas.getContext(
+                "2d"
+            );
+
+
+        ctx.drawImage(
+            video,
+            0,
+            0,
+            width,
+            height
+        );
+
+
+        const blob =
+            await new Promise(
+                resolve =>
+                    canvas.toBlob(
+                        resolve,
+                        "image/jpeg",
+                        0.70
+                    )
+            );
+
+
+        if (!blob) {
+
+            throw new Error(
+                "Could not capture webcam frame."
+            );
+
         }
 
-        const resultBlob=await response.blob();
-        const objectUrl=URL.createObjectURL(resultBlob);
-        const oldUrl=feed.dataset.objectUrl;
-        feed.src=objectUrl;
-        feed.dataset.objectUrl=objectUrl;
-        if(oldUrl) URL.revokeObjectURL(oldUrl);
-        feed.style.display="block";
-    }catch(err){
-        console.error("Webcam detection error:",err);
-        statusEl.textContent="Browser Webcam | Detection error: "+err.message;
-    }finally{
-        sendingFrame=false;
-        if(webcamStream) webcamTimer=setTimeout(captureAndDetect,250);
-    }
-}
 
-function useBuiltIn(){
-    stopBrowserCamera();
-    const filename=document.getElementById("sourceSelect").value;
-    if(!filename){alert("Select an image or video first.");return;}
-    const fd=new FormData();
-    fd.append("filename",filename);
-    fetch("/use_source",{method:"POST",body:fd}).then(r=>r.json()).then(handleSource);
-}
+        const formData =
+            new FormData();
 
-document.getElementById("uploadForm").addEventListener("submit",e=>{
-    e.preventDefault();
-    stopBrowserCamera();
-    const fd=new FormData(e.target);
-    fetch("/upload",{method:"POST",body:fd}).then(r=>r.json()).then(handleSource);
-});
 
-function handleSource(d){
-    if(!d.ok){alert(d.error||"Something went wrong.");return;}
-    imagePanel.style.display=d.mode==="image"?"block":"none";
+        formData.append(
+            "frame",
+            blob,
+            "webcam.jpg"
+        );
 
-    if(d.mode==="image"){
-        feed.src="";
-        feed.style.display="none";
-        imageResult.src=d.image_url+"?ts="+Date.now();
-        titleEl.textContent="OFFLINE IMAGE ANALYSIS";
-        statusEl.textContent="Source: "+d.source_name;
-    }else{
-        feed.style.display="block";
-        titleEl.textContent="OFFLINE VIDEO ANALYSIS";
-        statusEl.textContent="Source: Offline Video";
-        feed.src="/video_feed?ts="+Date.now();
-    }
-}
 
-function resetLog(){
-    if(!confirm("Delete the saved violation history?")) return;
-    fetch("/reset_log",{method:"POST"}).then(()=>refreshStats());
-}
+        const response =
+            await fetch(
+                "/process_webcam_frame",
+                {
+                    method: "POST",
+                    body: formData,
+                    cache: "no-store"
+                }
+            );
 
-function refreshStats(){
-    fetch("/stats?ts="+Date.now())
-    .then(r=>r.json())
-    .then(data=>{
-        document.getElementById("workers").textContent=data.workers;
-        document.getElementById("safe").textContent=data.safe;
-        document.getElementById("violations").textContent=data.violations;
-        document.getElementById("compliance").textContent=data.compliance+"%";
-        if(data.mode!=="browser_camera"){
-            statusEl.textContent="Source: "+data.source_name+" | Mode: "+data.mode;
+
+        if (!response.ok) {
+
+            const errorText =
+                await response.text();
+
+            throw new Error(
+                "Server error "
+                + response.status
+                + ": "
+                + errorText
+            );
+
         }
-        const body=document.getElementById("historyBody");
-        const rows=data.recent_violations||[];
-        body.innerHTML=rows.length ? rows.map(v =>
-            `<tr><td>${v.Date||""}</td><td>${v.Time||""}</td><td>${v["Worker ID"]||""}</td><td class="warning">${v.Violation||""}</td><td>${v.Source||""}</td></tr>`
-        ).join("") : `<tr><td colspan="5">No violations recorded yet.</td></tr>`;
-    })
-    .catch(()=>{});
+
+
+        const resultBlob =
+            await response.blob();
+
+
+        const imageUrl =
+            URL.createObjectURL(
+                resultBlob
+            );
+
+
+        // Release previous result image
+        const oldUrl =
+            output.dataset.objectUrl;
+
+
+        if (oldUrl) {
+
+            URL.revokeObjectURL(
+                oldUrl
+            );
+
+        }
+
+
+        output.src =
+            imageUrl;
+
+
+        output.dataset.objectUrl =
+            imageUrl;
+
+
+        webcamStatus.textContent =
+            "AI detection running • "
+            + new Date().toLocaleTimeString();
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Frame processing error:",
+            error
+        );
+
+
+        webcamStatus.textContent =
+            "Detection error: "
+            + error.message;
+
+    }
+
+    finally {
+
+        processingFrame = false;
+
+    }
+
 }
 
-window.addEventListener("beforeunload",stopBrowserCamera);
-setInterval(refreshStats,1000);
+
+// ============================================================
+// STOP OFFLINE DETECTION
+// ============================================================
+
+function stopOfflineDetection() {
+
+    imagePanel.style.display =
+        "none";
+
+}
+
+
+// ============================================================
+// BUILT-IN SOURCE
+// ============================================================
+
+function useBuiltIn() {
+
+    const filename =
+        document.getElementById(
+            "sourceSelect"
+        ).value;
+
+
+    if (!filename) {
+
+        alert(
+            "Select an image or video first."
+        );
+
+        return;
+    }
+
+
+    stopBrowserCamera();
+
+
+    const fd =
+        new FormData();
+
+
+    fd.append(
+        "filename",
+        filename
+    );
+
+
+    statusEl.textContent =
+        "Processing selected file...";
+
+
+    fetch(
+        "/use_source",
+        {
+            method: "POST",
+            body: fd
+        }
+    )
+
+    .then(
+        response =>
+            response.json()
+    )
+
+    .then(
+        handleSource
+    )
+
+    .catch(
+        error => {
+
+            console.error(
+                error
+            );
+
+            alert(
+                "Could not process file."
+            );
+
+        }
+    );
+
+}
+
+
+// ============================================================
+// FILE UPLOAD
+// ============================================================
+
+document
+    .getElementById("uploadForm")
+    .addEventListener(
+        "submit",
+        async function(event) {
+
+            event.preventDefault();
+
+
+            stopBrowserCamera();
+
+
+            const fd =
+                new FormData(
+                    event.target
+                );
+
+
+            statusEl.textContent =
+                "Uploading and processing...";
+
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/upload",
+                        {
+                            method: "POST",
+                            body: fd
+                        }
+                    );
+
+
+                const data =
+                    await response.json();
+
+
+                handleSource(
+                    data
+                );
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    error
+                );
+
+                alert(
+                    "Upload failed."
+                );
+
+            }
+
+        }
+    );
+
+
+// ============================================================
+// HANDLE IMAGE / VIDEO SOURCE
+// ============================================================
+
+function handleSource(data) {
+
+    if (!data.ok) {
+
+        alert(
+            data.error
+            ||
+            "Something went wrong."
+        );
+
+        return;
+    }
+
+
+    if (
+        data.mode === "image"
+    ) {
+
+        imagePanel.style.display =
+            "block";
+
+
+        output.style.display =
+            "none";
+
+
+        imageResult.src =
+            data.image_url
+            +
+            "?ts="
+            +
+            Date.now();
+
+
+        titleEl.textContent =
+            "OFFLINE IMAGE ANALYSIS";
+
+
+        statusEl.textContent =
+            "Source: "
+            +
+            "Offline Image";
+
+    }
+
+
+    else if (
+        data.mode === "video"
+    ) {
+
+        imagePanel.style.display =
+            "none";
+
+
+        output.style.display =
+            "block";
+
+
+        titleEl.textContent =
+            "OFFLINE VIDEO ANALYSIS";
+
+
+        statusEl.textContent =
+            "Source: Offline Video";
+
+
+        // Use multipart feed for offline video
+        output.src =
+            "/video_feed?ts="
+            +
+            Date.now();
+
+    }
+
+}
+
+
+// ============================================================
+// RESET VIOLATION HISTORY
+// ============================================================
+
+function resetLog() {
+
+    if (
+        !confirm(
+            "Delete the saved violation history?"
+        )
+    ) {
+
+        return;
+    }
+
+
+    fetch(
+        "/reset_log",
+        {
+            method: "POST"
+        }
+    )
+
+    .then(
+        () =>
+            refreshStats()
+    );
+
+}
+
+
+// ============================================================
+// REFRESH DASHBOARD STATS
+// ============================================================
+
+async function refreshStats() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/stats?ts="
+                +
+                Date.now(),
+                {
+                    cache: "no-store"
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        document.getElementById(
+            "workers"
+        ).textContent =
+            data.workers;
+
+
+        document.getElementById(
+            "safe"
+        ).textContent =
+            data.safe;
+
+
+        document.getElementById(
+            "violations"
+        ).textContent =
+            data.violations;
+
+
+        document.getElementById(
+            "compliance"
+        ).textContent =
+            data.compliance
+            +
+            "%";
+
+
+        if (
+            cameraRunning
+        ) {
+
+            statusEl.textContent =
+                "Source: Browser Webcam | "
+                +
+                "Mode: "
+                +
+                data.mode;
+
+        }
+        else {
+
+            statusEl.textContent =
+                "Source: "
+                +
+                data.source_name
+                +
+                " | Mode: "
+                +
+                data.mode;
+
+        }
+
+
+        const body =
+            document.getElementById(
+                "historyBody"
+            );
+
+
+        const rows =
+            data.recent_violations
+            ||
+            [];
+
+
+        if (rows.length) {
+
+            body.innerHTML =
+                rows.map(
+                    v =>
+                    `
+                    <tr>
+                        <td>${v.Date || ""}</td>
+                        <td>${v.Time || ""}</td>
+                        <td>${v["Worker ID"] || ""}</td>
+                        <td class="warning">${v.Violation || ""}</td>
+                        <td>${v.Source || ""}</td>
+                    </tr>
+                    `
+                ).join("");
+
+        }
+
+        else {
+
+            body.innerHTML =
+                `
+                <tr>
+                    <td colspan="5">
+                        No violations recorded yet.
+                    </td>
+                </tr>
+                `;
+
+        }
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Stats error:",
+            error
+        );
+
+    }
+
+}
+
+
+// ============================================================
+// INITIAL LOAD
+// ============================================================
+
 refreshStats();
+
+
+setInterval(
+    refreshStats,
+    1500
+);
+
+
 </script>
+
+
 </body>
+
 </html>
