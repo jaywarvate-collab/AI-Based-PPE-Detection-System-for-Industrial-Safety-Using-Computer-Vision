@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Construction Site Safety Monitor</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#f3f5f7;margin:0;color:#161616}
+header{background:#171717;color:#fff;padding:22px;text-align:center}
+header h1{margin:0 0 6px;font-size:30px}
+header p{margin:0;color:#ddd}
+.container{width:min(1250px,94%);margin:24px auto}
+.controls{background:#fff;padding:18px;border-radius:12px;box-shadow:0 2px 10px #00000018;margin-bottom:20px}
+.controls h2{margin-top:0}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+button,.file-label{border:0;border-radius:8px;padding:11px 16px;font-weight:700;cursor:pointer;background:#222;color:#fff}
+button.secondary{background:#555}
+button.danger{background:#9b1c1c}
+select,input[type=file]{padding:10px;border:1px solid #ccc;border-radius:8px;background:#fff}
+.status{margin-top:12px;font-size:14px;color:#555}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+.card{background:#fff;padding:20px;text-align:center;border-radius:12px;box-shadow:0 2px 10px #00000018}
+.card h3{margin:0 0 10px}
+.number{font-size:36px;font-weight:800}
+.camera{background:#111;color:#fff;padding:20px;text-align:center;border-radius:12px;margin-bottom:22px}
+.camera img{width:100%;max-height:650px;object-fit:contain;border-radius:8px;background:#222}
+.notice{background:#fff7d6;border-left:5px solid #e0a800;padding:12px;margin-bottom:20px;border-radius:6px}
+table{width:100%;background:#fff;border-collapse:collapse;box-shadow:0 2px 10px #00000012}
+th,td{padding:11px;border-bottom:1px solid #ddd;text-align:center}
+th{background:#333;color:#fff}
+.warning{color:#c00;font-weight:bold}
+@media(max-width:850px){.cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.cards{grid-template-columns:1fr}.container{width:96%}}
+</style>
+</head>
+<body>
+<header>
+<h1>Construction Site Safety Monitor</h1>
+<p>AI-Based PPE Detection System using YOLOv8</p>
+</header>
+
+<div class="container">
+<div class="controls">
+<h2>Detection Source</h2>
+<div class="row">
+<button onclick="setCamera()">📷 Live Camera</button>
+
+<form id="uploadForm" class="row" enctype="multipart/form-data">
+<input id="fileInput" type="file" name="file" accept=".jpg,.jpeg,.png,.jfif,.mp4,.avi,.mov,.mkv,.webm" required>
+<button type="submit">⬆ Upload & Detect</button>
+</form>
+</div>
+
+<div class="row" style="margin-top:12px">
+<select id="sourceSelect">
+<option value="">-- Use a file already in source_files --</option>
+{% for source in sources %}
+<option value="{{ source }}">{{ source }}</option>
+{% endfor %}
+</select>
+<button class="secondary" onclick="useBuiltIn()">▶ Analyze Selected File</button>
+<button class="danger" onclick="resetLog()">Reset Violation History</button>
+<a id="downloadBtn" href="/download_log"><button type="button" class="secondary">Download CSV</button></a>
+</div>
+<div class="status" id="status">Source: Live Camera</div>
+</div>
+
+<div class="cards">
+<div class="card"><h3>Workers Detected</h3><div class="number" id="workers">0</div></div>
+<div class="card"><h3>PPE Safe</h3><div class="number" id="safe">0</div></div>
+<div class="card"><h3>Violations</h3><div class="number" id="violations">0</div></div>
+<div class="card"><h3>Compliance</h3><div class="number" id="compliance">0%</div></div>
+</div>
+
+<div class="notice">
+<b>How the numbers work:</b> Workers = Person detections in the current frame.
+PPE Safe = workers with no detected <b>NO-Hardhat / NO-Mask / NO-Safety Vest</b>.
+Violations = unsafe workers. Compliance = safe workers ÷ detected workers.
+</div>
+
+<div class="camera">
+<h2 id="viewTitle">LIVE PPE DETECTION</h2>
+<img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Detection output">
+</div>
+
+<div id="imagePanel" style="display:none;background:#111;padding:20px;border-radius:12px;margin-bottom:22px;text-align:center">
+<h2 style="color:#fff">IMAGE RESULT</h2>
+<img id="imageResult" style="max-width:100%;max-height:650px;border-radius:8px">
+</div>
+
+<h2>Violation History</h2>
+<table>
+<thead><tr><th>Date</th><th>Time</th><th>Worker ID</th><th>Violation</th><th>Source</th></tr></thead>
+<tbody id="historyBody">
+{% if violations %}
+{% for v in violations %}
+<tr><td>{{v["Date"]}}</td><td>{{v["Time"]}}</td><td>{{v.get("Worker ID","")}}</td><td class="warning">{{v["Violation"]}}</td><td>{{v.get("Source","")}}</td></tr>
+{% endfor %}
+{% else %}
+<tr><td colspan="5">No violations recorded yet.</td></tr>
+{% endif %}
+</tbody>
+</table>
+</div>
+
+<script>
+const feed=document.getElementById("videoFeed");
+const imagePanel=document.getElementById("imagePanel");
+const imageResult=document.getElementById("imageResult");
+const statusEl=document.getElementById("status");
+const titleEl=document.getElementById("viewTitle");
+
+function setFeed(){
+    // Cache-busting forces the browser to create a fresh multipart request
+    feed.src="/video_feed?ts="+Date.now();
+    feed.style.display="block";
+}
+function setCamera(){
+    fetch("/set_camera",{method:"POST"}).then(r=>r.json()).then(d=>{
+        imagePanel.style.display="none";
+        feed.style.display="block";
+        titleEl.textContent="LIVE PPE DETECTION";
+        statusEl.textContent="Source: Live Camera";
+        setFeed();
+    });
+}
+function useBuiltIn(){
+    const filename=document.getElementById("sourceSelect").value;
+    if(!filename){alert("Select an image or video first.");return;}
+    const fd=new FormData();
+    fd.append("filename",filename);
+    fetch("/use_source",{method:"POST",body:fd}).then(r=>r.json()).then(handleSource);
+}
+document.getElementById("uploadForm").addEventListener("submit",e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    fetch("/upload",{method:"POST",body:fd}).then(r=>r.json()).then(handleSource);
+});
+function handleSource(d){
+    if(!d.ok){alert(d.error||"Something went wrong.");return;}
+    imagePanel.style.display=d.mode==="image"?"block":"none";
+    if(d.mode==="image"){
+        // Abort the previous live/video multipart request so it cannot overwrite image stats.
+        feed.src="";
+        feed.style.display="none";
+        imageResult.src=d.image_url+"?ts="+Date.now();
+        titleEl.textContent="OFFLINE IMAGE ANALYSIS";
+        statusEl.textContent="Source: "+d.mode;
+    }else{
+        feed.style.display="block";
+        titleEl.textContent="OFFLINE VIDEO ANALYSIS";
+        statusEl.textContent="Source: Offline Video";
+        setFeed();
+    }
+}
+function resetLog(){
+    if(!confirm("Delete the saved violation history?")) return;
+    fetch("/reset_log",{method:"POST"}).then(()=>refreshStats());
+}
+function refreshStats(){
+    fetch("/stats?ts="+Date.now()).then(r=>r.json()).then(data=>{
+        document.getElementById("workers").textContent=data.workers;
+        document.getElementById("safe").textContent=data.safe;
+        document.getElementById("violations").textContent=data.violations;
+        document.getElementById("compliance").textContent=data.compliance+"%";
+        statusEl.textContent="Source: "+data.source_name+" | Mode: "+data.mode;
+        const body=document.getElementById("historyBody");
+        const rows=data.recent_violations||[];
+        body.innerHTML=rows.length ? rows.map(v =>
+            `<tr><td>${v.Date||""}</td><td>${v.Time||""}</td><td>${v["Worker ID"]||""}</td><td class="warning">${v.Violation||""}</td><td>${v.Source||""}</td></tr>`
+        ).join("") : `<tr><td colspan="5">No violations recorded yet.</td></tr>`;
+    }).catch(()=>{});
+}
+setInterval(refreshStats,1000);
+refreshStats();
+</script>
+</body>
+</html>
