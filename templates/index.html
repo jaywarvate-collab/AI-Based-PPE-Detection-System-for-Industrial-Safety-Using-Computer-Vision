@@ -3,245 +3,254 @@
 
 <head>
 
-<meta charset="UTF-8">
+    <meta charset="UTF-8">
 
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-<title>Construction Site Safety Monitor</title>
+    <title>
+        AI-Based PPE Detection System
+    </title>
 
-<style>
+    <style>
 
-* {
-    box-sizing: border-box;
-}
+        * {
+            box-sizing: border-box;
+        }
 
-body {
-    font-family: Arial, sans-serif;
-    background: #f3f5f7;
-    margin: 0;
-    color: #161616;
-}
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
 
-header {
-    background: #171717;
-    color: white;
-    padding: 22px;
-    text-align: center;
-}
+        header {
+            background: #111827;
+            color: white;
+            padding: 20px 30px;
+        }
 
-header h1 {
-    margin: 0 0 6px;
-    font-size: 30px;
-}
+        header h1 {
+            margin: 0;
+            font-size: 26px;
+        }
 
-header p {
-    margin: 0;
-    color: #ddd;
-}
+        header p {
+            margin: 7px 0 0;
+            color: #cbd5e1;
+        }
 
-.container {
-    width: min(1250px, 94%);
-    margin: 24px auto;
-}
+        .container {
+            width: 94%;
+            max-width: 1400px;
+            margin: 25px auto;
+        }
 
-.controls {
-    background: white;
-    padding: 18px;
-    border-radius: 12px;
-    box-shadow: 0 2px 10px #00000018;
-    margin-bottom: 20px;
-}
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
 
-.controls h2 {
-    margin-top: 0;
-}
+        button,
+        input[type="file"] {
+            padding: 11px 15px;
+            border-radius: 7px;
+            border: 1px solid #cbd5e1;
+            background: white;
+            cursor: pointer;
+        }
 
-.row {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    align-items: center;
-}
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            font-weight: bold;
+        }
 
-button,
-.file-label {
-    border: 0;
-    border-radius: 8px;
-    padding: 11px 16px;
-    font-weight: 700;
-    cursor: pointer;
-    background: #222;
-    color: white;
-}
+        button:hover {
+            opacity: 0.9;
+        }
 
-button:hover {
-    opacity: 0.9;
-}
+        button.stop {
+            background: #dc2626;
+        }
 
-button.secondary {
-    background: #555;
-}
+        button.secondary {
+            background: #475569;
+        }
 
-button.danger {
-    background: #9b1c1c;
-}
+        .dashboard {
+            display: grid;
+            grid-template-columns:
+                repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
 
-button.success {
-    background: #087f23;
-}
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow:
+                0 2px 10px rgba(0,0,0,0.08);
+        }
 
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
+        .card h3 {
+            margin: 0;
+            font-size: 15px;
+            color: #64748b;
+        }
 
-select,
-input[type=file] {
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    background: white;
-}
+        .card .value {
+            font-size: 32px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
 
-.status {
-    margin-top: 12px;
-    font-size: 14px;
-    color: #555;
-}
+        .main-grid {
+            display: grid;
+            grid-template-columns:
+                2fr 1fr;
+            gap: 20px;
+        }
 
-.cards {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 20px;
-}
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow:
+                0 2px 10px rgba(0,0,0,0.08);
+        }
 
-.card {
-    background: white;
-    padding: 20px;
-    text-align: center;
-    border-radius: 12px;
-    box-shadow: 0 2px 10px #00000018;
-}
+        .panel h2 {
+            margin-top: 0;
+        }
 
-.card h3 {
-    margin: 0 0 10px;
-}
+        .video-area {
+            width: 100%;
+            min-height: 400px;
+            background: #111827;
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
 
-.number {
-    font-size: 36px;
-    font-weight: 800;
-}
+        #videoFeed,
+        #detectionOutput {
+            width: 100%;
+            max-height: 650px;
+            object-fit: contain;
+            display: block;
+        }
 
-.camera {
-    background: #111;
-    color: white;
-    padding: 20px;
-    text-align: center;
-    border-radius: 12px;
-    margin-bottom: 22px;
-}
+        #webcamVideo {
+            display: none;
+        }
 
-.camera h2 {
-    margin-top: 0;
-}
+        #webcamCanvas {
+            display: none;
+        }
 
-#webcamVideo {
-    display: none;
-}
+        .status {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 7px;
+            background: #f1f5f9;
+            color: #334155;
+        }
 
-#webcamCanvas {
-    display: none;
-}
+        .file-list {
+            margin-top: 15px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
 
-#detectionOutput {
-    width: 100%;
-    max-height: 650px;
-    object-fit: contain;
-    border-radius: 8px;
-    background: #222;
-}
+        .file-item {
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+            cursor: pointer;
+        }
 
-#imagePanel {
-    background: #111;
-    padding: 20px;
-    border-radius: 12px;
-    margin-bottom: 22px;
-    text-align: center;
-}
+        .file-item:hover {
+            background: #f8fafc;
+        }
 
-#imagePanel h2 {
-    color: white;
-}
+        .history {
+            max-height: 350px;
+            overflow-y: auto;
+        }
 
-#imageResult {
-    max-width: 100%;
-    max-height: 650px;
-    border-radius: 8px;
-}
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
 
-.notice {
-    background: #fff7d6;
-    border-left: 5px solid #e0a800;
-    padding: 12px;
-    margin-bottom: 20px;
-    border-radius: 6px;
-}
+        th,
+        td {
+            padding: 9px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left;
+            font-size: 13px;
+        }
 
-.webcam-status {
-    margin-top: 10px;
-    color: #ccc;
-    font-size: 14px;
-}
+        th {
+            background: #f8fafc;
+        }
 
-table {
-    width: 100%;
-    background: white;
-    border-collapse: collapse;
-    box-shadow: 0 2px 10px #00000012;
-}
+        .safe {
+            color: #16a34a;
+        }
 
-th,
-td {
-    padding: 11px;
-    border-bottom: 1px solid #ddd;
-    text-align: center;
-}
+        .danger {
+            color: #dc2626;
+        }
 
-th {
-    background: #333;
-    color: white;
-}
+        .upload-box {
+            margin-bottom: 20px;
+        }
 
-.warning {
-    color: #c00;
-    font-weight: bold;
-}
+        .hidden {
+            display: none !important;
+        }
 
-@media(max-width:850px) {
+        @media (max-width: 900px) {
 
-    .cards {
-        grid-template-columns: repeat(2, 1fr);
-    }
+            .dashboard {
+                grid-template-columns:
+                    repeat(2, 1fr);
+            }
 
-}
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
 
-@media(max-width:520px) {
+        }
 
-    .cards {
-        grid-template-columns: 1fr;
-    }
+        @media (max-width: 550px) {
 
-    .container {
-        width: 96%;
-    }
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
 
-}
+            .controls {
+                flex-direction: column;
+            }
 
-</style>
+            button,
+            input[type="file"] {
+                width: 100%;
+            }
+
+        }
+
+    </style>
 
 </head>
 
@@ -251,11 +260,13 @@ th {
 
 <header>
 
-<h1>Construction Site Safety Monitor</h1>
+    <h1>
+        AI-Based PPE Detection System
+    </h1>
 
-<p>
-AI-Based PPE Detection System using YOLOv8
-</p>
+    <p>
+        Industrial Safety Monitoring Using Computer Vision
+    </p>
 
 </header>
 
@@ -263,585 +274,499 @@ AI-Based PPE Detection System using YOLOv8
 <div class="container">
 
 
-<!-- ===================================================== -->
-<!-- CONTROLS -->
-<!-- ===================================================== -->
+    <!-- =====================================================
+         CONTROLS
+    ====================================================== -->
+
+    <div class="controls">
+
+        <button
+            id="startCameraBtn"
+            onclick="startCamera()"
+        >
+            Live Camera
+        </button>
 
-<div class="controls">
+        <button
+            id="stopCameraBtn"
+            class="stop"
+            onclick="stopCamera()"
+            disabled
+        >
+            Stop Camera
+        </button>
+
+        <button
+            class="secondary"
+            onclick="refreshSourceFiles()"
+        >
+            Refresh Files
+        </button>
 
-<h2>Detection Source</h2>
+        <button
+            class="secondary"
+            onclick="downloadLog()"
+        >
+            Download Log
+        </button>
 
+        <button
+            class="secondary"
+            onclick="resetLog()"
+        >
+            Reset Log
+        </button>
 
-<div class="row">
+    </div>
 
-<button
-    id="cameraButton"
-    onclick="startBrowserCamera()"
->
-📷 Live Camera
-</button>
 
+    <!-- =====================================================
+         UPLOAD
+    ====================================================== -->
 
-<button
-    id="stopCameraButton"
-    class="danger"
-    onclick="stopBrowserCamera()"
-    disabled
->
-⏹ Stop Camera
-</button>
+    <div class="panel upload-box">
 
+        <h2>
+            Upload & Detect
+        </h2>
 
-<form
-    id="uploadForm"
-    class="row"
-    enctype="multipart/form-data"
->
+        <input
+            type="file"
+            id="fileInput"
+            accept="image/*,video/*"
+        >
 
-<input
-    id="fileInput"
-    type="file"
-    name="file"
-    accept=".jpg,.jpeg,.png,.jfif,.mp4,.avi,.mov,.mkv,.webm"
-    required
->
+        <button
+            onclick="uploadFile()"
+        >
+            Upload & Detect
+        </button>
 
-<button type="submit">
-⬆ Upload & Detect
-</button>
+    </div>
 
-</form>
 
-</div>
+    <!-- =====================================================
+         DASHBOARD
+    ====================================================== -->
 
+    <div class="dashboard">
 
-<div
-    class="row"
-    style="margin-top:12px"
->
+        <div class="card">
 
-<select id="sourceSelect">
+            <h3>
+                Workers Detected
+            </h3>
 
-<option value="">
--- Use a file already in source_files --
-</option>
+            <div
+                class="value"
+                id="workers"
+            >
+                0
+            </div>
 
-{% for source in sources %}
+        </div>
 
-<option value="{{ source }}">
-{{ source }}
-</option>
 
-{% endfor %}
+        <div class="card">
 
-</select>
+            <h3>
+                PPE Safe
+            </h3>
 
+            <div
+                class="value safe"
+                id="safe"
+            >
+                0
+            </div>
 
-<button
-    class="secondary"
-    onclick="useBuiltIn()"
->
-▶ Analyze Selected File
-</button>
+        </div>
 
 
-<button
-    class="danger"
-    onclick="resetLog()"
->
-Reset Violation History
-</button>
+        <div class="card">
 
+            <h3>
+                Violations
+            </h3>
 
-<a
-    id="downloadBtn"
-    href="/download_log"
->
+            <div
+                class="value danger"
+                id="violations"
+            >
+                0
+            </div>
 
-<button
-    type="button"
-    class="secondary"
->
-Download CSV
-</button>
+        </div>
 
-</a>
 
-</div>
+        <div class="card">
 
+            <h3>
+                Compliance
+            </h3>
 
-<div
-    class="status"
-    id="status"
->
-Source: Live Camera
-</div>
+            <div
+                class="value"
+                id="compliance"
+            >
+                0%
+            </div>
 
-</div>
+        </div>
 
+    </div>
 
 
-<!-- ===================================================== -->
-<!-- STATISTICS -->
-<!-- ===================================================== -->
+    <!-- =====================================================
+         MAIN AREA
+    ====================================================== -->
 
-<div class="cards">
+    <div class="main-grid">
 
-<div class="card">
 
-<h3>
-Workers Detected
-</h3>
+        <!-- =================================================
+             VIDEO / DETECTION
+        ================================================== -->
 
-<div
-    class="number"
-    id="workers"
->
-0
-</div>
+        <div class="panel">
 
-</div>
+            <h2>
+                Detection Output
+            </h2>
 
+            <div class="video-area">
 
-<div class="card">
+                <!-- Local OpenCV stream -->
+                <img
+                    id="videoFeed"
+                    alt="Live Camera"
+                >
 
-<h3>
-PPE Safe
-</h3>
+                <!-- Browser webcam -->
+                <video
+                    id="webcamVideo"
+                    autoplay
+                    playsinline
+                    muted
+                ></video>
 
-<div
-    class="number"
-    id="safe"
->
-0
-</div>
+                <canvas
+                    id="webcamCanvas"
+                ></canvas>
 
-</div>
+                <!-- Render detection output -->
+                <img
+                    id="detectionOutput"
+                    class="hidden"
+                    alt="Detection Output"
+                >
 
+            </div>
 
-<div class="card">
 
-<h3>
-Violations
-</h3>
+            <div
+                class="status"
+                id="cameraStatus"
+            >
+                Source: None
+            </div>
 
-<div
-    class="number"
-    id="violations"
->
-0
-</div>
+        </div>
 
-</div>
 
+        <!-- =================================================
+             SOURCE FILES
+        ================================================== -->
 
-<div class="card">
+        <div class="panel">
 
-<h3>
-Compliance
-</h3>
+            <h2>
+                Existing Source Files
+            </h2>
 
-<div
-    class="number"
-    id="compliance"
->
-0%
-</div>
+            <div
+                class="file-list"
+                id="fileList"
+            >
+                Loading...
+            </div>
 
-</div>
+        </div>
 
-</div>
+    </div>
 
 
+    <!-- =====================================================
+         VIOLATION HISTORY
+    ====================================================== -->
 
-<!-- ===================================================== -->
-<!-- EXPLANATION -->
-<!-- ===================================================== -->
+    <div
+        class="panel"
+        style="margin-top:20px;"
+    >
 
-<div class="notice">
+        <h2>
+            Violation History
+        </h2>
 
-<b>How the numbers work:</b>
+        <div class="history">
 
-Workers = Person detections in the current frame.
+            <table>
 
-PPE Safe = workers with no detected
-<b>NO-Hardhat / NO-Mask / NO-Safety Vest</b>.
+                <thead>
 
-Violations = unsafe workers.
+                    <tr>
 
-Compliance = safe workers ÷ detected workers.
+                        <th>
+                            Date
+                        </th>
 
-</div>
+                        <th>
+                            Time
+                        </th>
 
+                        <th>
+                            Worker ID
+                        </th>
 
+                        <th>
+                            Violation
+                        </th>
 
-<!-- ===================================================== -->
-<!-- CAMERA / DETECTION -->
-<!-- ===================================================== -->
+                        <th>
+                            Source
+                        </th>
 
-<div class="camera">
+                    </tr>
 
-<h2 id="viewTitle">
-LIVE PPE DETECTION
-</h2>
+                </thead>
 
+                <tbody
+                    id="historyBody"
+                >
 
-<!-- Hidden browser webcam -->
+                </tbody>
 
-<video
-    id="webcamVideo"
-    autoplay
-    playsinline
-    muted
->
-</video>
+            </table>
 
+        </div>
 
-<!-- Hidden canvas used to capture webcam frame -->
-
-<canvas
-    id="webcamCanvas"
->
-</canvas>
-
-
-<!-- YOLO detection result -->
-
-<img
-    id="detectionOutput"
-    alt="Detection output"
->
-
-
-<div
-    class="webcam-status"
-    id="webcamStatus"
->
-Click "Live Camera" to start your browser webcam.
-</div>
-
-</div>
-
-
-
-<!-- ===================================================== -->
-<!-- IMAGE RESULT -->
-<!-- ===================================================== -->
-
-<div
-    id="imagePanel"
-    style="display:none"
->
-
-<h2>
-IMAGE RESULT
-</h2>
-
-<img
-    id="imageResult"
-    alt="Image detection result"
->
-
-</div>
-
-
-
-<!-- ===================================================== -->
-<!-- VIOLATION HISTORY -->
-<!-- ===================================================== -->
-
-<h2>
-Violation History
-</h2>
-
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>Date</th>
-
-<th>Time</th>
-
-<th>Worker ID</th>
-
-<th>Violation</th>
-
-<th>Source</th>
-
-</tr>
-
-</thead>
-
-
-<tbody id="historyBody">
-
-{% if violations %}
-
-{% for v in violations %}
-
-<tr>
-
-<td>
-{{ v["Date"] }}
-</td>
-
-<td>
-{{ v["Time"] }}
-</td>
-
-<td>
-{{ v.get("Worker ID", "") }}
-</td>
-
-<td class="warning">
-{{ v["Violation"] }}
-</td>
-
-<td>
-{{ v.get("Source", "") }}
-</td>
-
-</tr>
-
-{% endfor %}
-
-{% else %}
-
-<tr>
-
-<td colspan="5">
-No violations recorded yet.
-</td>
-
-</tr>
-
-{% endif %}
-
-</tbody>
-
-</table>
+    </div>
 
 
 </div>
-
 
 
 <script>
 
 
 // ============================================================
-// ELEMENTS
-// ============================================================
-
-const video =
-    document.getElementById(
-        "webcamVideo"
-    );
-
-const canvas =
-    document.getElementById(
-        "webcamCanvas"
-    );
-
-const output =
-    document.getElementById(
-        "detectionOutput"
-    );
-
-const imagePanel =
-    document.getElementById(
-        "imagePanel"
-    );
-
-const imageResult =
-    document.getElementById(
-        "imageResult"
-    );
-
-const statusEl =
-    document.getElementById(
-        "status"
-    );
-
-const webcamStatus =
-    document.getElementById(
-        "webcamStatus"
-    );
-
-const titleEl =
-    document.getElementById(
-        "viewTitle"
-    );
-
-const cameraButton =
-    document.getElementById(
-        "cameraButton"
-    );
-
-const stopCameraButton =
-    document.getElementById(
-        "stopCameraButton"
-    );
-
-
-// ============================================================
-// CAMERA VARIABLES
+// GLOBAL VARIABLES
 // ============================================================
 
 let webcamStream = null;
 
-let cameraRunning = false;
+let webcamInterval = null;
 
 let processingFrame = false;
 
-let cameraTimer = null;
+let localCameraRunning = false;
 
 
 // ============================================================
-// START BROWSER WEBCAM
+// CHECK LOCALHOST
 // ============================================================
 
-async function startBrowserCamera() {
+function isLocalhost() {
+
+    const hostname =
+        window.location.hostname;
+
+    return (
+        hostname === "localhost" ||
+        hostname === "127.0.0.1"
+    );
+}
+
+
+// ============================================================
+// CAMERA STATUS
+// ============================================================
+
+function setStatus(message) {
+
+    document.getElementById(
+        "cameraStatus"
+    ).textContent = message;
+}
+
+
+// ============================================================
+// START CAMERA
+// ============================================================
+
+async function startCamera() {
+
+    stopCamera(false);
+
+    document.getElementById(
+        "startCameraBtn"
+    ).disabled = true;
+
+    document.getElementById(
+        "stopCameraBtn"
+    ).disabled = false;
+
+
+    // ========================================================
+    // LOCALHOST
+    // ========================================================
+
+    if (isLocalhost()) {
+
+        localCameraRunning = true;
+
+        const videoFeed =
+            document.getElementById(
+                "videoFeed"
+            );
+
+        const detectionOutput =
+            document.getElementById(
+                "detectionOutput"
+            );
+
+        videoFeed.classList.remove(
+            "hidden"
+        );
+
+        detectionOutput.classList.add(
+            "hidden"
+        );
+
+        videoFeed.src =
+            "/video_feed?ts=" +
+            Date.now();
+
+        setStatus(
+            "Source: Live Camera | Mode: Local OpenCV | Smooth Mode"
+        );
+
+        return;
+    }
+
+
+    // ========================================================
+    // RENDER / CLOUD
+    // ========================================================
 
     try {
 
-        stopOfflineDetection();
-
-
-        if (!navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia) {
-
-            alert(
-                "Your browser does not support webcam access."
-            );
-
-            return;
-        }
-
-
-        webcamStatus.textContent =
-            "Requesting webcam permission...";
-
-
         webcamStream =
-            await navigator.mediaDevices.getUserMedia(
-                {
-                    video: {
-                        width: {
-                            ideal: 640
-                        },
+            await navigator.mediaDevices.getUserMedia({
 
-                        height: {
-                            ideal: 480
-                        },
-
-                        facingMode: "user"
+                video: {
+                    width: {
+                        ideal: 640
                     },
 
-                    audio: false
-                }
-            );
+                    height: {
+                        ideal: 480
+                    },
 
+                    frameRate: {
+                        ideal: 15,
+                        max: 20
+                    }
+                },
+
+                audio: false
+            });
+
+
+        const video =
+            document.getElementById(
+                "webcamVideo"
+            );
 
         video.srcObject =
             webcamStream;
+
+        video.classList.add(
+            "hidden"
+        );
+
+        const videoFeed =
+            document.getElementById(
+                "videoFeed"
+            );
+
+        videoFeed.classList.add(
+            "hidden"
+        );
+
+        const output =
+            document.getElementById(
+                "detectionOutput"
+            );
+
+        output.classList.remove(
+            "hidden"
+        );
+
+        setStatus(
+            "Source: Browser Webcam | Cloud AI Detection"
+        );
 
 
         await video.play();
 
 
-        cameraRunning = true;
-
-        processingFrame = false;
-
-
-        cameraButton.disabled = true;
-
-        stopCameraButton.disabled = false;
-
-
-        titleEl.textContent =
-            "LIVE PPE DETECTION";
-
-
-        statusEl.textContent =
-            "Source: Browser Webcam";
-
-
-        webcamStatus.textContent =
-            "Webcam connected. AI detection is running...";
-
-
-        output.style.display =
-            "block";
-
-
-        imagePanel.style.display =
-            "none";
-
-
-        // Start sending frames to Render
-        cameraTimer =
-            setInterval(
-                processWebcamFrame,
-                700
-            );
-
-
-        // Process first frame immediately
+        // Start cloud processing
         processWebcamFrame();
 
+        webcamInterval =
+            setInterval(
+                processWebcamFrame,
+                2000
+            );
 
     }
-
     catch (error) {
 
         console.error(
-            "Webcam error:",
+            "Camera error:",
             error
         );
 
-
-        webcamStatus.textContent =
-            "Could not access webcam: "
-            + error.message;
-
-
-        alert(
-            "Webcam access failed.\n\n"
-            + error.message
+        setStatus(
+            "Camera error: " +
+            error.message
         );
 
-    }
+        document.getElementById(
+            "startCameraBtn"
+        ).disabled = false;
 
+        document.getElementById(
+            "stopCameraBtn"
+        ).disabled = true;
+    }
 }
 
 
 // ============================================================
-// STOP BROWSER WEBCAM
+// STOP CAMERA
 // ============================================================
 
-function stopBrowserCamera() {
+function stopCamera(
+    updateButtons = true
+) {
 
-    cameraRunning = false;
-
-    processingFrame = false;
-
-
-    if (cameraTimer !== null) {
-
-        clearInterval(
-            cameraTimer
-        );
-
-        cameraTimer = null;
-
-    }
+    localCameraRunning = false;
 
 
+    // Stop browser camera
     if (webcamStream) {
 
         webcamStream
@@ -851,52 +776,67 @@ function stopBrowserCamera() {
             );
 
         webcamStream = null;
-
     }
 
+
+    // Stop interval
+    if (webcamInterval) {
+
+        clearInterval(
+            webcamInterval
+        );
+
+        webcamInterval = null;
+    }
+
+
+    processingFrame = false;
+
+
+    // Stop local video
+    const videoFeed =
+        document.getElementById(
+            "videoFeed"
+        );
+
+    videoFeed.src = "";
+
+
+    // Stop browser video
+    const video =
+        document.getElementById(
+            "webcamVideo"
+        );
 
     video.srcObject = null;
 
 
-    cameraButton.disabled = false;
+    if (updateButtons) {
 
-    stopCameraButton.disabled = true;
+        document.getElementById(
+            "startCameraBtn"
+        ).disabled = false;
 
+        document.getElementById(
+            "stopCameraBtn"
+        ).disabled = true;
 
-    webcamStatus.textContent =
-        "Webcam stopped.";
-
-
-    statusEl.textContent =
-        "Source: Live Camera";
-
-
-    output.removeAttribute(
-        "src"
-    );
-
+        setStatus(
+            "Source: None"
+        );
+    }
 }
 
 
 // ============================================================
-// CAPTURE + SEND WEBCAM FRAME TO YOLO
+// PROCESS BROWSER WEBCAM
 // ============================================================
 
 async function processWebcamFrame() {
 
-    if (!cameraRunning) {
-        return;
-    }
-
-
-    if (processingFrame) {
-        return;
-    }
-
-
     if (
-        !video.videoWidth ||
-        !video.videoHeight
+        !webcamStream ||
+        processingFrame
     ) {
         return;
     }
@@ -907,66 +847,82 @@ async function processWebcamFrame() {
 
     try {
 
-        // Use a smaller frame to reduce
-        // processing time and network load.
+        const video =
+            document.getElementById(
+                "webcamVideo"
+            );
 
-        const width = 640;
+        const canvas =
+            document.getElementById(
+                "webcamCanvas"
+            );
 
-        const height =
-            Math.round(
-                video.videoHeight
-                *
-                (
-                    width
-                    /
-                    video.videoWidth
-                )
+        const output =
+            document.getElementById(
+                "detectionOutput"
             );
 
 
-        canvas.width = width;
+        // Smaller frame = faster upload
+        const targetWidth = 480;
 
-        canvas.height = height;
+        const scale =
+            targetWidth /
+            video.videoWidth;
+
+        const targetHeight =
+            Math.round(
+                video.videoHeight *
+                scale
+            );
 
 
-        const ctx =
+        canvas.width =
+            targetWidth;
+
+        canvas.height =
+            targetHeight;
+
+
+        const context =
             canvas.getContext(
                 "2d"
             );
 
 
-        ctx.drawImage(
+        context.drawImage(
             video,
             0,
             0,
-            width,
-            height
+            targetWidth,
+            targetHeight
         );
 
 
         const blob =
             await new Promise(
-                resolve =>
+                resolve => {
+
                     canvas.toBlob(
                         resolve,
                         "image/jpeg",
-                        0.70
-                    )
+                        0.60
+                    );
+
+                }
             );
 
 
         if (!blob) {
 
-            throw new Error(
-                "Could not capture webcam frame."
-            );
+            processingFrame = false;
 
+            return;
         }
 
 
         const formData =
             new FormData();
-
 
         formData.append(
             "frame",
@@ -988,16 +944,14 @@ async function processWebcamFrame() {
 
         if (!response.ok) {
 
-            const errorText =
-                await response.text();
-
-            throw new Error(
-                "Server error "
-                + response.status
-                + ": "
-                + errorText
+            console.error(
+                "Webcam server error:",
+                response.status
             );
 
+            processingFrame = false;
+
+            return;
         }
 
 
@@ -1005,287 +959,381 @@ async function processWebcamFrame() {
             await response.blob();
 
 
-        const imageUrl =
-            URL.createObjectURL(
-                resultBlob
-            );
+        if (
+            resultBlob &&
+            resultBlob.size > 0
+        ) {
+
+            const oldUrl =
+                output.dataset.url;
+
+            if (oldUrl) {
+
+                URL.revokeObjectURL(
+                    oldUrl
+                );
+            }
 
 
-        // Release previous result image
-        const oldUrl =
-            output.dataset.objectUrl;
+            const imageUrl =
+                URL.createObjectURL(
+                    resultBlob
+                );
 
 
-        if (oldUrl) {
+            output.dataset.url =
+                imageUrl;
 
-            URL.revokeObjectURL(
-                oldUrl
-            );
-
+            output.src =
+                imageUrl;
         }
 
-
-        output.src =
-            imageUrl;
-
-
-        output.dataset.objectUrl =
-            imageUrl;
-
-
-        webcamStatus.textContent =
-            "AI detection running • "
-            + new Date().toLocaleTimeString();
-
     }
-
     catch (error) {
 
         console.error(
-            "Frame processing error:",
+            "Webcam processing error:",
             error
         );
 
-
-        webcamStatus.textContent =
-            "Detection error: "
-            + error.message;
-
     }
-
     finally {
 
         processingFrame = false;
 
     }
-
 }
 
 
 // ============================================================
-// STOP OFFLINE DETECTION
+// UPLOAD FILE
 // ============================================================
 
-function stopOfflineDetection() {
+async function uploadFile() {
 
-    imagePanel.style.display =
-        "none";
-
-}
-
-
-// ============================================================
-// BUILT-IN SOURCE
-// ============================================================
-
-function useBuiltIn() {
-
-    const filename =
+    const input =
         document.getElementById(
-            "sourceSelect"
-        ).value;
+            "fileInput"
+        );
 
-
-    if (!filename) {
+    if (
+        !input.files ||
+        input.files.length === 0
+    ) {
 
         alert(
-            "Select an image or video first."
+            "Please select an image or video."
         );
 
         return;
     }
 
 
-    stopBrowserCamera();
+    stopCamera();
 
 
-    const fd =
+    const formData =
         new FormData();
 
+    formData.append(
+        "file",
+        input.files[0]
+    );
 
-    fd.append(
-        "filename",
+
+    setStatus(
+        "Processing uploaded file..."
+    );
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/upload",
+                {
+                    method: "POST",
+                    body: formData
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        if (!data.ok) {
+
+            alert(
+                data.error ||
+                "Upload failed."
+            );
+
+            return;
+        }
+
+
+        if (
+            data.type ===
+            "image"
+        ) {
+
+            const output =
+                document.getElementById(
+                    "detectionOutput"
+                );
+
+            const videoFeed =
+                document.getElementById(
+                    "videoFeed"
+                );
+
+
+            videoFeed.classList.add(
+                "hidden"
+            );
+
+            output.classList.remove(
+                "hidden"
+            );
+
+            output.src =
+                data.url +
+                "?ts=" +
+                Date.now();
+
+            setStatus(
+                "Source: Uploaded Image"
+            );
+        }
+
+
+        else if (
+            data.type ===
+            "video"
+        ) {
+
+            const videoFeed =
+                document.getElementById(
+                    "videoFeed"
+                );
+
+            const output =
+                document.getElementById(
+                    "detectionOutput"
+                );
+
+
+            output.classList.add(
+                "hidden"
+            );
+
+            videoFeed.classList.remove(
+                "hidden"
+            );
+
+            videoFeed.src =
+                data.url +
+                "?ts=" +
+                Date.now();
+
+            setStatus(
+                "Source: Uploaded Video"
+            );
+        }
+
+
+        refreshStats();
+
+    }
+    catch (error) {
+
+        console.error(error);
+
+        alert(
+            "Upload error."
+        );
+
+    }
+
+}
+
+
+// ============================================================
+// SOURCE FILES
+// ============================================================
+
+async function refreshSourceFiles() {
+
+    const fileList =
+        document.getElementById(
+            "fileList"
+        );
+
+
+    try {
+
+        const response =
+            await fetch(
+                "/source_files"
+            );
+
+
+        const files =
+            await response.json();
+
+
+        fileList.innerHTML = "";
+
+
+        if (
+            !files ||
+            files.length === 0
+        ) {
+
+            fileList.innerHTML =
+                "<p>No source files found.</p>";
+
+            return;
+        }
+
+
+        files.forEach(
+            filename => {
+
+                const item =
+                    document.createElement(
+                        "div"
+                    );
+
+                item.className =
+                    "file-item";
+
+                item.textContent =
+                    filename;
+
+                item.onclick =
+                    () => useSource(
+                        filename
+                    );
+
+                fileList.appendChild(
+                    item
+                );
+
+            }
+        );
+
+    }
+    catch (error) {
+
+        fileList.innerHTML =
+            "<p>Could not load source files.</p>";
+
+    }
+}
+
+
+// ============================================================
+// USE EXISTING SOURCE
+// ============================================================
+
+async function useSource(
+    filename
+) {
+
+    stopCamera();
+
+
+    setStatus(
+        "Processing: " +
         filename
     );
 
 
-    statusEl.textContent =
-        "Processing selected file...";
+    try {
 
+        const response =
+            await fetch(
+                "/use_source",
+                {
+                    method: "POST",
 
-    fetch(
-        "/use_source",
-        {
-            method: "POST",
-            body: fd
-        }
-    )
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
 
-    .then(
-        response =>
-            response.json()
-    )
-
-    .then(
-        handleSource
-    )
-
-    .catch(
-        error => {
-
-            console.error(
-                error
+                    body: JSON.stringify({
+                        filename:
+                            filename
+                    })
+                }
             );
+
+
+        const data =
+            await response.json();
+
+
+        if (!data.ok) {
 
             alert(
-                "Could not process file."
+                data.error ||
+                "Could not process source."
             );
 
+            return;
         }
-    );
-
-}
 
 
-// ============================================================
-// FILE UPLOAD
-// ============================================================
+        if (
+            data.type ===
+            "image"
+        ) {
 
-document
-    .getElementById("uploadForm")
-    .addEventListener(
-        "submit",
-        async function(event) {
+            const videoFeed =
+                document.getElementById(
+                    "videoFeed"
+                );
 
-            event.preventDefault();
-
-
-            stopBrowserCamera();
-
-
-            const fd =
-                new FormData(
-                    event.target
+            const output =
+                document.getElementById(
+                    "detectionOutput"
                 );
 
 
-            statusEl.textContent =
-                "Uploading and processing...";
+            videoFeed.classList.add(
+                "hidden"
+            );
 
+            output.classList.remove(
+                "hidden"
+            );
 
-            try {
-
-                const response =
-                    await fetch(
-                        "/upload",
-                        {
-                            method: "POST",
-                            body: fd
-                        }
-                    );
-
-
-                const data =
-                    await response.json();
-
-
-                handleSource(
-                    data
-                );
-
-            }
-
-            catch (error) {
-
-                console.error(
-                    error
-                );
-
-                alert(
-                    "Upload failed."
-                );
-
-            }
-
+            output.src =
+                data.url +
+                "?ts=" +
+                Date.now();
         }
-    );
 
 
-// ============================================================
-// HANDLE IMAGE / VIDEO SOURCE
-// ============================================================
-
-function handleSource(data) {
-
-    if (!data.ok) {
-
-        alert(
-            data.error
-            ||
-            "Something went wrong."
+        setStatus(
+            "Source: " +
+            filename
         );
 
-        return;
-    }
 
-
-    if (
-        data.mode === "image"
-    ) {
-
-        imagePanel.style.display =
-            "block";
-
-
-        output.style.display =
-            "none";
-
-
-        imageResult.src =
-            data.image_url
-            +
-            "?ts="
-            +
-            Date.now();
-
-
-        titleEl.textContent =
-            "OFFLINE IMAGE ANALYSIS";
-
-
-        statusEl.textContent =
-            "Source: "
-            +
-            "Offline Image";
+        refreshStats();
 
     }
+    catch (error) {
 
+        console.error(error);
 
-    else if (
-        data.mode === "video"
-    ) {
-
-        imagePanel.style.display =
-            "none";
-
-
-        output.style.display =
-            "block";
-
-
-        titleEl.textContent =
-            "OFFLINE VIDEO ANALYSIS";
-
-
-        statusEl.textContent =
-            "Source: Offline Video";
-
-
-        // Use multipart feed for offline video
-        output.src =
-            "/video_feed?ts="
-            +
-            Date.now();
+        alert(
+            "Processing error."
+        );
 
     }
 
@@ -1293,38 +1341,7 @@ function handleSource(data) {
 
 
 // ============================================================
-// RESET VIOLATION HISTORY
-// ============================================================
-
-function resetLog() {
-
-    if (
-        !confirm(
-            "Delete the saved violation history?"
-        )
-    ) {
-
-        return;
-    }
-
-
-    fetch(
-        "/reset_log",
-        {
-            method: "POST"
-        }
-    )
-
-    .then(
-        () =>
-            refreshStats()
-    );
-
-}
-
-
-// ============================================================
-// REFRESH DASHBOARD STATS
+// STATS
 // ============================================================
 
 async function refreshStats() {
@@ -1333,9 +1350,7 @@ async function refreshStats() {
 
         const response =
             await fetch(
-                "/stats?ts="
-                +
-                Date.now(),
+                "/stats",
                 {
                     cache: "no-store"
                 }
@@ -1349,100 +1364,28 @@ async function refreshStats() {
         document.getElementById(
             "workers"
         ).textContent =
-            data.workers;
+            data.workers ?? 0;
 
 
         document.getElementById(
             "safe"
         ).textContent =
-            data.safe;
+            data.safe ?? 0;
 
 
         document.getElementById(
             "violations"
         ).textContent =
-            data.violations;
+            data.violations ?? 0;
 
 
         document.getElementById(
             "compliance"
         ).textContent =
-            data.compliance
-            +
-            "%";
-
-
-        if (
-            cameraRunning
-        ) {
-
-            statusEl.textContent =
-                "Source: Browser Webcam | "
-                +
-                "Mode: "
-                +
-                data.mode;
-
-        }
-        else {
-
-            statusEl.textContent =
-                "Source: "
-                +
-                data.source_name
-                +
-                " | Mode: "
-                +
-                data.mode;
-
-        }
-
-
-        const body =
-            document.getElementById(
-                "historyBody"
-            );
-
-
-        const rows =
-            data.recent_violations
-            ||
-            [];
-
-
-        if (rows.length) {
-
-            body.innerHTML =
-                rows.map(
-                    v =>
-                    `
-                    <tr>
-                        <td>${v.Date || ""}</td>
-                        <td>${v.Time || ""}</td>
-                        <td>${v["Worker ID"] || ""}</td>
-                        <td class="warning">${v.Violation || ""}</td>
-                        <td>${v.Source || ""}</td>
-                    </tr>
-                    `
-                ).join("");
-
-        }
-
-        else {
-
-            body.innerHTML =
-                `
-                <tr>
-                    <td colspan="5">
-                        No violations recorded yet.
-                    </td>
-                </tr>
-                `;
-
-        }
+            (data.compliance ?? 0)
+            + "%";
 
     }
-
     catch (error) {
 
         console.error(
@@ -1451,20 +1394,278 @@ async function refreshStats() {
         );
 
     }
+}
+
+
+// ============================================================
+// VIOLATION HISTORY
+// ============================================================
+
+async function refreshHistory() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/violation_history?ts=" + Date.now(),
+                {
+                    method: "GET",
+                    cache: "no-store",
+                    headers: {
+                        "Cache-Control": "no-cache"
+                    }
+                }
+            );
+
+        if (!response.ok) {
+
+            console.error(
+                "History request failed:",
+                response.status
+            );
+
+            return;
+        }
+
+        const data =
+            await response.json();
+
+        const body =
+            document.getElementById(
+                "historyBody"
+            );
+
+        if (!body) {
+            return;
+        }
+
+        body.innerHTML = "";
+
+        if (
+            !data.ok ||
+            !Array.isArray(data.records) ||
+            data.records.length === 0
+        ) {
+
+            return;
+        }
+
+        data.records.forEach(
+            record => {
+
+                const row =
+                    document.createElement(
+                        "tr"
+                    );
+
+                [
+                    record["Date"] || "",
+                    record["Time"] || "",
+                    record["Worker ID"] || "",
+                    record["Violation"] || "",
+                    record["Source"] || ""
+                ].forEach(
+                    value => {
+
+                        const cell =
+                            document.createElement(
+                                "td"
+                            );
+
+                        cell.textContent =
+                            value;
+
+                        row.appendChild(
+                            cell
+                        );
+
+                    }
+                );
+
+                body.appendChild(
+                    row
+                );
+
+            }
+        );
+
+    }
+    catch (error) {
+
+        console.error(
+            "History error:",
+            error
+        );
+
+    }
+}
+
+
+// ============================================================
+// SIMPLE CSV PARSER
+
+// ============================================================
+
+function parseCSVLine(
+    line
+) {
+
+    const result = [];
+
+    let current = "";
+
+    let insideQuotes = false;
+
+
+    for (
+        let i = 0;
+        i < line.length;
+        i++
+    ) {
+
+        const character =
+            line[i];
+
+
+        if (
+            character === '"'
+        ) {
+
+            insideQuotes =
+                !insideQuotes;
+
+            continue;
+        }
+
+
+        if (
+            character === "," &&
+            !insideQuotes
+        ) {
+
+            result.push(
+                current
+            );
+
+            current = "";
+
+        }
+        else {
+
+            current +=
+                character;
+
+        }
+
+    }
+
+
+    result.push(
+        current
+    );
+
+
+    return result;
+}
+
+
+// ============================================================
+// DOWNLOAD LOG
+// ============================================================
+
+function downloadLog() {
+
+    window.location.href =
+        "/download_log";
+}
+
+
+// ============================================================
+// RESET LOG
+// ============================================================
+
+async function resetLog() {
+
+    const confirmed =
+        confirm(
+            "Are you sure you want to reset the violation history?"
+        );
+
+
+    if (!confirmed) {
+        return;
+    }
+
+
+    try {
+
+        await fetch(
+            "/reset_log",
+            {
+                method: "POST"
+            }
+        );
+
+
+        refreshHistory();
+
+    }
+    catch (error) {
+
+        console.error(error);
+
+    }
 
 }
 
 
 // ============================================================
-// INITIAL LOAD
+// INITIALIZATION
 // ============================================================
 
-refreshStats();
+window.addEventListener(
+    "load",
+    () => {
+
+        refreshSourceFiles();
+
+        refreshStats();
+
+        refreshHistory();
 
 
-setInterval(
-    refreshStats,
-    1500
+        // Refresh dashboard
+        // every 2 seconds.
+
+        setInterval(
+            refreshStats,
+            2000
+        );
+
+
+        // Refresh violation history
+        // every 5 seconds.
+
+        setInterval(
+            refreshHistory,
+            5000
+        );
+
+    }
+);
+
+
+// ============================================================
+// PAGE CLOSE
+// ============================================================
+
+window.addEventListener(
+    "beforeunload",
+    () => {
+
+        stopCamera(false);
+
+    }
 );
 
 

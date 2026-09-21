@@ -1,74 +1,73 @@
-from flask import Flask, render_template, Response, request, jsonify, send_from_directory
-from flask_cors import CORS
-from ultralytics import YOLO
-from werkzeug.utils import secure_filename
-
-import cv2
-import csv
 import os
+import csv
 import threading
-import time
-import numpy as np
-
 from datetime import datetime
 
+import cv2
+import numpy as np
+from flask import (
+    Flask,
+    render_template,
+    Response,
+    request,
+    jsonify,
+    send_file,
+)
+from ultralytics import YOLO
+
 
 # ============================================================
-# PATHS
+# FLASK APP
 # ============================================================
+
+app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "models",
-    "best.pt"
-)
+MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pt")
+SOURCE_DIR = os.path.join(BASE_DIR, "source_files")
+RESULT_DIR = os.path.join(BASE_DIR, "results")
 
-SOURCE_DIR = os.path.join(
-    BASE_DIR,
-    "source_files"
-)
-
-UPLOAD_DIR = os.path.join(
-    BASE_DIR,
-    "static",
-    "uploads"
-)
-
-RESULT_DIR = os.path.join(
-    BASE_DIR,
-    "static",
-    "results"
-)
-
-LOG_FILE = os.path.join(
-    BASE_DIR,
-    "violations.csv"
-)
-
-
-# ============================================================
-# CREATE DIRECTORIES
-# ============================================================
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(SOURCE_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 
 
 # ============================================================
-# FLASK APPLICATION
+# LOAD MODEL
 # ============================================================
 
-app = Flask(__name__)
-CORS(app)
-
-
-# ============================================================
-# LOAD YOLO MODEL
-# ============================================================
+print("Loading YOLO model...")
 
 model = YOLO(MODEL_PATH)
+
+print("YOLO model loaded successfully.")
+
+
+# ============================================================
+# GLOBAL VARIABLES
+# ============================================================
+
+current_source = "Live Camera"
+current_camera_index = 0
+
+camera = None
+camera_lock = threading.Lock()
+
+inference_lock = threading.Lock()
+
+latest_stats = {
+    "workers": 0,
+    "safe": 0,
+    "violations": 0,
+    "compliance": 0.0,
+}
+
+violation_csv = os.path.join(BASE_DIR, "violations.csv")
+
+# Prevent the same violation from being recorded on every video frame.
+violation_log_lock = threading.Lock()
+last_violation_log = {}
+VIOLATION_LOG_COOLDOWN = 5  # seconds
 
 
 # ============================================================
@@ -76,558 +75,540 @@ model = YOLO(MODEL_PATH)
 # ============================================================
 
 VIOLATION_CLASSES = {
-    "NO-Hardhat": "No Hardhat",
-    "NO-Mask": "No Mask",
-    "NO-Safety Vest": "No Safety Vest",
-}
-
-POSITIVE_PPE = {
-    "Hardhat",
-    "Mask",
-    "Safety Vest",
-}
-
-PERSON_CLASS = "Person"
-
-
-# ============================================================
-# GLOBAL STATE
-# ============================================================
-
-state_lock = threading.Lock()
-
-state = {
-    "workers": 0,
-    "safe": 0,
-    "violations": 0,
-    "compliance": 0.0,
-    "mode": "camera",
-    "source_name": "Live Camera",
-    "image_url": None,
-    "frame_ready": False,
-    "video_path": None,
+    "NO-Hardhat",
+    "NO-Mask",
+    "NO-Safety Vest",
 }
 
 
-# Local/server camera support.
-# Browser webcam does NOT use this on Render.
-camera = None
-camera_lock = threading.Lock()
-
-last_logged = {}
-
-
 # ============================================================
-# CSV LOG
+# CSV INITIALIZATION
 # ============================================================
 
-def ensure_log():
-    if not os.path.exists(LOG_FILE):
+def initialize_csv():
+    if not os.path.exists(violation_csv):
         with open(
-            LOG_FILE,
+            violation_csv,
             "w",
             newline="",
             encoding="utf-8"
-        ) as f:
-            csv.writer(f).writerow(
-                [
-                    "Date",
-                    "Time",
-                    "Worker ID",
-                    "Violation",
-                    "Source",
-                ]
-            )
+        ) as file:
+
+            writer = csv.writer(file)
+
+            writer.writerow([
+                "Date",
+                "Time",
+                "Worker ID",
+                "Violation",
+                "Source"
+            ])
 
 
-ensure_log()
+initialize_csv()
 
 
 # ============================================================
-# YOLO HELPERS
+# HELPER FUNCTIONS
 # ============================================================
 
-def class_name(cls_id):
-    return model.names[int(cls_id)]
+def get_class_name(class_id):
+    try:
+        return model.names[int(class_id)]
+    except Exception:
+        return str(class_id)
 
 
-def center(box):
-    x1, y1, x2, y2 = map(float, box)
+def calculate_iou(box1, box2):
+    """
+    Calculate Intersection over Union.
+    """
 
-    return (
-        (x1 + x2) / 2.0,
-        (y1 + y2) / 2.0
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+
+    intersection_width = max(0, x2 - x1)
+    intersection_height = max(0, y2 - y1)
+
+    intersection = intersection_width * intersection_height
+
+    area1 = max(0, box1[2] - box1[0]) * max(
+        0,
+        box1[3] - box1[1]
     )
 
+    area2 = max(0, box2[2] - box2[0]) * max(
+        0,
+        box2[3] - box2[1]
+    )
 
-def point_in_expanded_box(
-    point,
-    box,
-    expand_x=0.12,
-    expand_top=0.30,
-    expand_bottom=0.08
+    union = area1 + area2 - intersection
+
+    if union <= 0:
+        return 0
+
+    return intersection / union
+
+
+def update_stats(workers, unsafe_workers):
+    safe_workers = max(0, workers - unsafe_workers)
+
+    if workers > 0:
+        compliance = (safe_workers / workers) * 100
+    else:
+        compliance = 0.0
+
+    latest_stats["workers"] = workers
+    latest_stats["safe"] = safe_workers
+    latest_stats["violations"] = unsafe_workers
+    latest_stats["compliance"] = round(compliance, 1)
+
+
+def log_violation(worker_id, violation, source):
+    now = datetime.now()
+
+    with open(
+        violation_csv,
+        "a",
+        newline="",
+        encoding="utf-8"
+    ) as file:
+
+        writer = csv.writer(file)
+
+        writer.writerow([
+            now.strftime("%Y-%m-%d"),
+            now.strftime("%H:%M:%S"),
+            worker_id,
+            violation,
+            source
+        ])
+
+
+def log_violation_once(worker_id, violation, source):
+    """
+    Record a violation, but prevent duplicate rows for the same
+    worker/violation/source within the cooldown period.
+    """
+    now = datetime.now()
+    key = (
+        str(source),
+        str(worker_id),
+        str(violation)
+    )
+
+    with violation_log_lock:
+        previous = last_violation_log.get(key)
+
+        if previous is not None:
+            elapsed = (now - previous).total_seconds()
+
+            if elapsed < VIOLATION_LOG_COOLDOWN:
+                return False
+
+        last_violation_log[key] = now
+
+    try:
+        log_violation(
+            worker_id,
+            violation,
+            source
+        )
+
+        print(
+            f"VIOLATION RECORDED: "
+            f"Worker {worker_id} | {violation} | {source}"
+        )
+
+        return True
+
+    except Exception as error:
+        print(
+            "VIOLATION LOG ERROR:",
+            repr(error)
+        )
+        return False
+
+
+# ============================================================
+# FRAME PROCESSING
+# ============================================================
+
+def process_frame(
+    frame,
+    source_name="Live Camera",
+    use_tracking=True,
+    confidence=0.25,
+    imgsz=416
 ):
-    x1, y1, x2, y2 = map(float, box)
-
-    width = x2 - x1
-    height = y2 - y1
-
-    px, py = point
-
-    return (
-        x1 - expand_x * width
-        <= px
-        <= x2 + expand_x * width
-        and
-        y1 - expand_top * height
-        <= py
-        <= y2 + expand_bottom * height
-    )
-
-
-# ============================================================
-# ASSOCIATE PPE WITH WORKERS
-# ============================================================
-
-def associate_ppe_to_workers(result):
     """
-    Associates PPE and PPE violations with the nearest detected
-    person whose expanded bounding box contains the PPE center.
+    Main PPE detection function.
+
+    Local webcam:
+        YOLO tracking + ByteTrack
+
+    Uploaded image / Render webcam:
+        YOLO prediction
     """
+
+    global latest_stats
+
+    if frame is None:
+        return frame
+
+    # --------------------------------------------------------
+    # Resize extremely large frames
+    # --------------------------------------------------------
+
+    height, width = frame.shape[:2]
+
+    max_width = 960
+
+    if width > max_width:
+
+        scale = max_width / width
+
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+
+        frame = cv2.resize(
+            frame,
+            (new_width, new_height),
+            interpolation=cv2.INTER_AREA
+        )
+
+    # --------------------------------------------------------
+    # YOLO inference
+    # --------------------------------------------------------
+
+    try:
+
+        with inference_lock:
+
+            if use_tracking:
+
+                results = model.track(
+                    frame,
+                    persist=True,
+                    tracker="bytetrack.yaml",
+                    conf=confidence,
+                    imgsz=imgsz,
+                    max_det=30,
+                    verbose=False
+                )
+
+            else:
+
+                results = model.predict(
+                    frame,
+                    conf=confidence,
+                    imgsz=imgsz,
+                    max_det=30,
+                    verbose=False
+                )
+
+    except Exception as error:
+
+        print("YOLO ERROR:", error)
+
+        return frame
+
+    if not results:
+        return frame
+
+    result = results[0]
+
+    if result.boxes is None:
+        update_stats(0, 0)
+        return frame
 
     boxes = result.boxes
 
     detections = []
 
-    for i in range(len(boxes)):
-
-        cls_id = int(boxes.cls[i])
-
-        name = class_name(cls_id)
-
-        conf = float(boxes.conf[i])
-
-        xyxy = boxes.xyxy[i].cpu().tolist()
-
-        track_id = None
-
-        if boxes.id is not None:
-            try:
-                track_id = int(boxes.id[i])
-            except Exception:
-                track_id = None
-
-        detections.append(
-            {
-                "name": name,
-                "conf": conf,
-                "box": xyxy,
-                "track_id": track_id,
-            }
-        )
-
     # --------------------------------------------------------
-    # Find people
+    # Extract detections
     # --------------------------------------------------------
 
-    persons = [
-        d
-        for d in detections
-        if d["name"] == PERSON_CLASS
-    ]
+    for index in range(len(boxes)):
 
-    # --------------------------------------------------------
-    # Find PPE / violations
-    # --------------------------------------------------------
+        try:
 
-    ppe = [
-        d
-        for d in detections
-        if (
-            d["name"] in VIOLATION_CLASSES
-            or
-            d["name"] in POSITIVE_PPE
-        )
-    ]
+            xyxy = boxes.xyxy[index].cpu().numpy()
 
-    workers = []
+            x1, y1, x2, y2 = map(int, xyxy)
 
-    for idx, person in enumerate(persons):
+            class_id = int(
+                boxes.cls[index].cpu().item()
+            )
 
-        worker = {
-            "index": idx + 1,
-            "track_id": person["track_id"],
-            "box": person["box"],
-            "violations": [],
-            "ppe": [],
-        }
+            confidence_value = float(
+                boxes.conf[index].cpu().item()
+            )
 
-        workers.append(worker)
+            class_name = get_class_name(class_id)
 
-    # --------------------------------------------------------
-    # Assign PPE to nearest worker
-    # --------------------------------------------------------
+            track_id = None
 
-    for item in ppe:
-
-        item_center = center(item["box"])
-
-        candidates = []
-
-        for worker in workers:
-
-            if point_in_expanded_box(
-                item_center,
-                worker["box"]
+            if (
+                use_tracking
+                and boxes.id is not None
             ):
 
-                person_center = center(
-                    worker["box"]
-                )
+                try:
 
-                worker_width = max(
-                    1.0,
-                    worker["box"][2]
-                    - worker["box"][0]
-                )
-
-                worker_height = max(
-                    1.0,
-                    worker["box"][3]
-                    - worker["box"][1]
-                )
-
-                dx = (
-                    item_center[0]
-                    - person_center[0]
-                ) / worker_width
-
-                dy = (
-                    item_center[1]
-                    - person_center[1]
-                ) / worker_height
-
-                distance = (
-                    dx * dx
-                    +
-                    dy * dy
-                )
-
-                candidates.append(
-                    (
-                        distance,
-                        worker
+                    track_id = int(
+                        boxes.id[index].cpu().item()
                     )
-                )
 
-        if candidates:
+                except Exception:
+                    track_id = None
 
-            _, target = min(
-                candidates,
-                key=lambda x: x[0]
-            )
+            detections.append({
+                "box": [x1, y1, x2, y2],
+                "class": class_name,
+                "confidence": confidence_value,
+                "track_id": track_id
+            })
 
-            target["ppe"].append(
-                item["name"]
-            )
-
-            if item["name"] in VIOLATION_CLASSES:
-                target["violations"].append(
-                    item["name"]
-                )
+        except Exception:
+            continue
 
     # --------------------------------------------------------
-    # Remove duplicate detections
+    # Find workers
     # --------------------------------------------------------
 
-    for worker in workers:
+    worker_detections = []
 
-        worker["violations"] = sorted(
-            set(worker["violations"])
-        )
+    for detection in detections:
 
-        worker["ppe"] = sorted(
-            set(worker["ppe"])
-        )
+        name = detection["class"].lower()
 
-    return workers
+        if name in ["person", "worker"]:
 
+            worker_detections.append(detection)
 
-# ============================================================
-# UPDATE DASHBOARD STATISTICS
-# ============================================================
+    workers_count = len(worker_detections)
 
-def update_stats(workers):
+    # --------------------------------------------------------
+    # Associate PPE violations with workers
+    # --------------------------------------------------------
 
-    total_workers = len(workers)
+    unsafe_workers = 0
 
-    unsafe_workers = sum(
-        1
-        for worker in workers
-        if worker["violations"]
+    worker_results = []
+
+    for worker_index, worker in enumerate(
+        worker_detections,
+        start=1
+    ):
+
+        worker_box = worker["box"]
+
+        worker_id = worker["track_id"]
+
+        if worker_id is None:
+            worker_id = worker_index
+
+        violations_for_worker = []
+
+        for detection in detections:
+
+            class_name = detection["class"]
+
+            if class_name not in VIOLATION_CLASSES:
+                continue
+
+            iou = calculate_iou(
+                worker_box,
+                detection["box"]
+            )
+
+            # Also check if the PPE box is inside
+            # the worker bounding box.
+
+            wx1, wy1, wx2, wy2 = worker_box
+
+            px1, py1, px2, py2 = detection["box"]
+
+            center_x = (px1 + px2) / 2
+            center_y = (py1 + py2) / 2
+
+            inside_worker = (
+                wx1 <= center_x <= wx2
+                and
+                wy1 <= center_y <= wy2
+            )
+
+            if iou > 0.02 or inside_worker:
+
+                violations_for_worker.append(
+                    class_name
+                )
+
+        if violations_for_worker:
+
+            unsafe_workers += 1
+
+            # Record each violation detected for this worker.
+            for violation in sorted(set(violations_for_worker)):
+
+                log_violation_once(
+                    worker_id,
+                    violation,
+                    source_name
+                )
+
+        worker_results.append({
+            "id": worker_id,
+            "box": worker_box,
+            "violations": violations_for_worker
+        })
+
+    # --------------------------------------------------------
+    # Update dashboard
+    # --------------------------------------------------------
+
+    update_stats(
+        workers_count,
+        unsafe_workers
     )
 
-    safe_workers = (
-        total_workers
-        - unsafe_workers
-    )
+    # --------------------------------------------------------
+    # Draw worker boxes
+    # --------------------------------------------------------
 
-    if total_workers:
-        compliance = round(
-            (safe_workers / total_workers) * 100,
-            1
-        )
-    else:
-        compliance = 0.0
+    for worker in worker_results:
 
-    with state_lock:
+        x1, y1, x2, y2 = worker["box"]
 
-        state["workers"] = total_workers
+        violations = worker["violations"]
 
-        state["safe"] = safe_workers
+        if violations:
 
-        state["violations"] = unsafe_workers
+            box_color = (0, 0, 255)
 
-        state["compliance"] = compliance
-
-        state["frame_ready"] = True
-
-
-# ============================================================
-# LOG VIOLATIONS
-# ============================================================
-
-def log_worker_violations(
-    workers,
-    source_name
-):
-
-    now = datetime.now()
-
-    for worker in workers:
-
-        if worker["track_id"] is not None:
-
-            worker_key = worker["track_id"]
+            label = (
+                f"Worker {worker['id']} | "
+                + ", ".join(violations)
+            )
 
         else:
 
-            worker_key = (
-                f"person-{worker['index']}"
+            box_color = (0, 200, 0)
+
+            label = (
+                f"Worker {worker['id']} | SAFE"
             )
 
-        for violation in worker["violations"]:
+        cv2.rectangle(
+            frame,
+            (x1, y1),
+            (x2, y2),
+            box_color,
+            2
+        )
 
-            key = (
-                source_name,
-                worker_key,
-                violation,
-            )
+        cv2.rectangle(
+            frame,
+            (x1, max(0, y1 - 30)),
+            (
+                min(
+                    frame.shape[1] - 1,
+                    x1 + max(160, len(label) * 8)
+                ),
+                y1
+            ),
+            box_color,
+            -1
+        )
 
-            previous = last_logged.get(key)
+        cv2.putText(
+            frame,
+            label,
+            (x1 + 5, max(20, y1 - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA
+        )
 
-            should_log = (
-                previous is None
-                or
-                (
-                    now - previous
-                ).total_seconds() >= 5
-            )
+    # --------------------------------------------------------
+    # Draw PPE violation boxes
+    # --------------------------------------------------------
 
-            if should_log:
+    for detection in detections:
 
-                with open(
-                    LOG_FILE,
-                    "a",
-                    newline="",
-                    encoding="utf-8"
-                ) as f:
+        class_name = detection["class"]
 
-                    csv.writer(f).writerow(
-                        [
-                            now.strftime(
-                                "%d-%m-%Y"
-                            ),
-                            now.strftime(
-                                "%H:%M:%S"
-                            ),
-                            str(worker_key),
-                            violation,
-                            source_name,
-                        ]
-                    )
+        if class_name not in VIOLATION_CLASSES:
+            continue
 
-                last_logged[key] = now
+        x1, y1, x2, y2 = detection["box"]
 
+        confidence_text = (
+            f"{class_name} "
+            f"{detection['confidence']:.2f}"
+        )
 
-# ============================================================
-# ANNOTATE RESULT
-# ============================================================
+        cv2.rectangle(
+            frame,
+            (x1, y1),
+            (x2, y2),
+            (0, 0, 255),
+            2
+        )
 
-def annotate(result):
+        cv2.putText(
+            frame,
+            confidence_text,
+            (x1, max(20, y1 - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA
+        )
 
-    frame = result.plot()
+    # --------------------------------------------------------
+    # Dashboard overlay
+    # --------------------------------------------------------
 
-    workers = associate_ppe_to_workers(
-        result
+    overlay_text = (
+        f"Workers: {latest_stats['workers']}   "
+        f"Safe: {latest_stats['safe']}   "
+        f"Violations: {latest_stats['violations']}   "
+        f"Compliance: {latest_stats['compliance']}%"
     )
 
-    update_stats(workers)
-
-    return frame, workers
-
-
-# ============================================================
-# STATUS OVERLAY
-# ============================================================
-
-def add_status_overlay(
-    frame,
-    workers
-):
-
-    if not workers:
-
-        text = "NO WORKERS DETECTED"
-
-        color = (
-            0,
-            215,
-            255
-        )
-
-    elif any(
-        worker["violations"]
-        for worker in workers
-    ):
-
-        text = "SAFETY VIOLATION"
-
-        color = (
-            0,
-            0,
-            255
-        )
-
-    else:
-
-        text = "PPE STATUS: SAFE"
-
-        color = (
-            0,
-            180,
-            0
-        )
-
-    # Status background
     cv2.rectangle(
         frame,
         (10, 10),
-        (420, 58),
-        (20, 20, 20),
+        (min(frame.shape[1] - 10, 650), 50),
+        (0, 0, 0),
         -1
     )
 
     cv2.putText(
         frame,
-        text,
-        (22, 43),
+        overlay_text,
+        (20, 38),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.85,
-        color,
-        2
+        0.55,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA
     )
-
-    # Worker violation information
-    y = 88
-
-    for worker in workers:
-
-        if worker["violations"]:
-
-            worker_id = (
-                worker["track_id"]
-                if worker["track_id"] is not None
-                else worker["index"]
-            )
-
-            labels = ", ".join(
-                VIOLATION_CLASSES[v]
-                for v in worker["violations"]
-            )
-
-            label = (
-                f"Worker {worker_id}: "
-                f"{labels}"
-            )
-
-            cv2.putText(
-                frame,
-                label,
-                (18, y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.52,
-                (0, 0, 255),
-                2
-            )
-
-            y += 24
 
     return frame
 
 
 # ============================================================
-# PROCESS ONE FRAME
-# ============================================================
-
-def process_frame(
-    frame,
-    source_name,
-    use_tracking=True,
-    confidence=0.25
-):
-
-    if use_tracking:
-
-        results = model.track(
-            source=frame,
-            persist=True,
-            tracker="bytetrack.yaml",
-            conf=confidence,
-            iou=0.50,
-            verbose=False,
-        )
-
-    else:
-
-        results = model.predict(
-            source=frame,
-            conf=confidence,
-            iou=0.50,
-            verbose=False,
-        )
-
-    result = results[0]
-
-    annotated, workers = annotate(
-        result
-    )
-
-    log_worker_violations(
-        workers,
-        source_name
-    )
-
-    annotated = add_status_overlay(
-        annotated,
-        workers
-    )
-
-    return annotated
-
-
-# ============================================================
-# LOCAL CAMERA SUPPORT
+# LOCAL WEBCAM
 # ============================================================
 
 def get_camera():
@@ -636,149 +617,53 @@ def get_camera():
 
     with camera_lock:
 
-        if (
-            camera is None
-            or not camera.isOpened()
-        ):
+        if camera is None:
 
-            camera = cv2.VideoCapture(0)
+            camera = cv2.VideoCapture(
+                current_camera_index,
+                cv2.CAP_DSHOW
+            )
+
+            # IMPORTANT:
+            # Lower resolution = smoother YOLO processing.
 
             camera.set(
                 cv2.CAP_PROP_FRAME_WIDTH,
-                1280
+                640
             )
 
             camera.set(
                 cv2.CAP_PROP_FRAME_HEIGHT,
-                720
+                480
             )
+
+            camera.set(
+                cv2.CAP_PROP_FPS,
+                30
+            )
+
+            # Reduce internal camera buffer.
+
+            try:
+                camera.set(
+                    cv2.CAP_PROP_BUFFERSIZE,
+                    1
+                )
+            except Exception:
+                pass
 
         return camera
 
 
-# ============================================================
-# VIDEO STREAM GENERATOR
-# ============================================================
-
 def generate_frames():
 
-    with state_lock:
-        mode = state["mode"]
-        source_name = state["source_name"]
-        image_url = state["image_url"]
-        video_path = state.get("video_path")
-
-    # --------------------------------------------------------
-    # IMAGE MODE
-    # --------------------------------------------------------
-
-    if mode == "image":
-
-        if image_url:
-
-            relative_path = (
-                image_url
-                .lstrip("/")
-                .replace(
-                    "/",
-                    os.sep
-                )
-            )
-
-            path = os.path.join(
-                BASE_DIR,
-                relative_path
-            )
-
-            frame = cv2.imread(path)
-
-            if frame is not None:
-
-                ok, buffer = cv2.imencode(
-                    ".jpg",
-                    frame
-                )
-
-                if ok:
-
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n"
-                        +
-                        buffer.tobytes()
-                        +
-                        b"\r\n"
-                    )
-
-        return
-
-    # --------------------------------------------------------
-    # VIDEO MODE
-    # --------------------------------------------------------
-
-    if mode == "video":
-
-        if (
-            not video_path
-            or not os.path.exists(video_path)
-        ):
-            return
-
-        cap = cv2.VideoCapture(
-            video_path
-        )
-
-        while True:
-
-            success, frame = cap.read()
-
-            if not success:
-                break
-
-            annotated = process_frame(
-                frame,
-                source_name,
-                use_tracking=True,
-                confidence=0.25
-            )
-
-            ok, buffer = cv2.imencode(
-                ".jpg",
-                annotated,
-                [
-                    int(
-                        cv2.IMWRITE_JPEG_QUALITY
-                    ),
-                    85,
-                ]
-            )
-
-            if ok:
-
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n"
-                    +
-                    buffer.tobytes()
-                    +
-                    b"\r\n"
-                )
-
-            time.sleep(0.01)
-
-        cap.release()
-
-        return
-
-    # --------------------------------------------------------
-    # LOCAL CAMERA MODE
-    #
-    # This is only useful when running locally.
-    # The deployed browser webcam uses
-    # /process_webcam_frame instead.
-    # --------------------------------------------------------
+    global camera
 
     cap = get_camera()
+
+    frame_count = 0
+
+    last_processed_frame = None
 
     while True:
 
@@ -786,146 +671,78 @@ def generate_frames():
 
         if not success:
 
-            time.sleep(0.1)
+            print("Camera frame could not be read.")
 
-            continue
+            break
 
-        annotated = process_frame(
-            frame,
-            "Live Camera",
-            use_tracking=True,
-            confidence=0.25
-        )
+        frame_count += 1
 
-        ok, buffer = cv2.imencode(
+        # ----------------------------------------------------
+        # PROCESS EVERY 2ND FRAME
+        # ----------------------------------------------------
+
+        if frame_count % 2 == 0:
+
+            last_processed_frame = process_frame(
+                frame,
+                "Live Camera",
+                use_tracking=True,
+                confidence=0.25,
+                imgsz=416
+            )
+
+        # ----------------------------------------------------
+        # Display latest processed result
+        # ----------------------------------------------------
+
+        if last_processed_frame is not None:
+
+            display_frame = last_processed_frame
+
+        else:
+
+            display_frame = frame
+
+        # ----------------------------------------------------
+        # JPEG encoding
+        # ----------------------------------------------------
+
+        success, buffer = cv2.imencode(
             ".jpg",
-            annotated,
+            display_frame,
             [
-                int(
-                    cv2.IMWRITE_JPEG_QUALITY
-                ),
-                80,
+                int(cv2.IMWRITE_JPEG_QUALITY),
+                75
             ]
         )
 
-        if ok:
+        if not success:
+            continue
 
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                +
-                buffer.tobytes()
-                +
-                b"\r\n"
-            )
+        frame_bytes = buffer.tobytes()
 
-
-# ============================================================
-# GET VIOLATION HISTORY
-# ============================================================
-
-def get_violations(limit=100):
-
-    ensure_log()
-
-    rows = []
-
-    with open(
-        LOG_FILE,
-        "r",
-        newline="",
-        encoding="utf-8"
-    ) as f:
-
-        reader = csv.DictReader(f)
-
-        for row in reader:
-            rows.append(row)
-
-    return list(
-        reversed(rows)
-    )[:limit]
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n"
+            + frame_bytes
+            + b"\r\n"
+        )
 
 
 # ============================================================
-# AVAILABLE SOURCE FILES
-# ============================================================
-
-def available_sources():
-
-    allowed = {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".jfif",
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".mkv",
-        ".webm",
-    }
-
-    files = []
-
-    if os.path.isdir(SOURCE_DIR):
-
-        for name in sorted(
-            os.listdir(SOURCE_DIR)
-        ):
-
-            path = os.path.join(
-                SOURCE_DIR,
-                name
-            )
-
-            if (
-                os.path.isfile(path)
-                and
-                os.path.splitext(
-                    name
-                )[1].lower()
-                in allowed
-            ):
-
-                files.append(name)
-
-    return files
-
-
-# ============================================================
-# HOME
+# ROUTES
 # ============================================================
 
 @app.route("/")
-def home():
+def index():
 
     return render_template(
-        "index.html",
-        violations=get_violations(),
-        sources=available_sources(),
+        "index.html"
     )
 
 
 # ============================================================
-# STATISTICS API
-# ============================================================
-
-@app.route("/stats")
-def stats():
-
-    with state_lock:
-
-        data = dict(state)
-
-    data["recent_violations"] = (
-        get_violations(20)
-    )
-
-    return jsonify(data)
-
-
-# ============================================================
-# VIDEO FEED
+# LOCAL VIDEO STREAM
 # ============================================================
 
 @app.route("/video_feed")
@@ -933,20 +750,27 @@ def video_feed():
 
     return Response(
         generate_frames(),
-        mimetype=(
-            "multipart/"
-            "x-mixed-replace;"
-            " boundary=frame"
-        ),
-        headers={
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
+        mimetype="multipart/x-mixed-replace; boundary=frame"
     )
 
 
 # ============================================================
-# SET CAMERA MODE
+# STATS
+# ============================================================
+
+@app.route("/stats")
+def stats():
+
+    return jsonify({
+        "workers": latest_stats["workers"],
+        "safe": latest_stats["safe"],
+        "violations": latest_stats["violations"],
+        "compliance": latest_stats["compliance"]
+    })
+
+
+# ============================================================
+# SET CAMERA
 # ============================================================
 
 @app.route(
@@ -955,357 +779,39 @@ def video_feed():
 )
 def set_camera():
 
-    with state_lock:
+    global current_camera_index
+    global camera
 
-        state["mode"] = "camera"
+    try:
 
-        state["source_name"] = (
-            "Live Camera"
+        data = request.get_json(
+            silent=True
+        ) or {}
+
+        current_camera_index = int(
+            data.get("camera", 0)
         )
 
-        state["image_url"] = None
+    except Exception:
 
-        state["video_path"] = None
+        current_camera_index = 0
 
-    return jsonify(
-        {
-            "ok": True,
-            "mode": "camera",
-        }
-    )
+    with camera_lock:
+
+        if camera is not None:
+
+            camera.release()
+
+            camera = None
+
+    return jsonify({
+        "ok": True,
+        "camera": current_camera_index
+    })
 
 
 # ============================================================
-# USE BUILT-IN SOURCE FILE
-# ============================================================
-
-@app.route(
-    "/use_source",
-    methods=["POST"]
-)
-def use_source():
-
-    filename = secure_filename(
-        request.form.get(
-            "filename",
-            ""
-        )
-    )
-
-    path = os.path.join(
-        SOURCE_DIR,
-        filename
-    )
-
-    if (
-        not filename
-        or not os.path.isfile(path)
-    ):
-
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "Source file not found."
-                ),
-            }
-        ), 400
-
-    ext = os.path.splitext(
-        filename
-    )[1].lower()
-
-    # --------------------------------------------------------
-    # IMAGE
-    # --------------------------------------------------------
-
-    if ext in {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".jfif",
-    }:
-
-        frame = cv2.imread(path)
-
-        if frame is None:
-
-            return jsonify(
-                {
-                    "ok": False,
-                    "error": (
-                        "Could not read image."
-                    ),
-                }
-            ), 400
-
-        annotated = process_frame(
-            frame,
-            filename,
-            use_tracking=False,
-            confidence=0.25
-        )
-
-        out_name = (
-            f"processed_"
-            f"{int(time.time())}_"
-            f"{filename.rsplit('.', 1)[0]}"
-            f".jpg"
-        )
-
-        out_path = os.path.join(
-            RESULT_DIR,
-            out_name
-        )
-
-        cv2.imwrite(
-            out_path,
-            annotated
-        )
-
-        with state_lock:
-
-            state["mode"] = "image"
-
-            state["source_name"] = (
-                filename
-            )
-
-            state["image_url"] = (
-                "/static/results/"
-                + out_name
-            )
-
-            state["video_path"] = None
-
-        return jsonify(
-            {
-                "ok": True,
-                "mode": "image",
-                "image_url": state[
-                    "image_url"
-                ],
-            }
-        )
-
-    # --------------------------------------------------------
-    # VIDEO
-    # --------------------------------------------------------
-
-    if ext in {
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".mkv",
-        ".webm",
-    }:
-
-        with state_lock:
-
-            state["mode"] = "video"
-
-            state["source_name"] = (
-                filename
-            )
-
-            state["video_path"] = path
-
-            state["image_url"] = None
-
-        return jsonify(
-            {
-                "ok": True,
-                "mode": "video",
-            }
-        )
-
-    return jsonify(
-        {
-            "ok": False,
-            "error": (
-                "Unsupported file type."
-            ),
-        }
-    ), 400
-
-
-# ============================================================
-# UPLOAD FILE
-# ============================================================
-
-@app.route(
-    "/upload",
-    methods=["POST"]
-)
-def upload():
-
-    if "file" not in request.files:
-
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "No file selected."
-                ),
-            }
-        ), 400
-
-    file = request.files["file"]
-
-    if not file.filename:
-
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "No file selected."
-                ),
-            }
-        ), 400
-
-    filename = secure_filename(
-        file.filename
-    )
-
-    ext = os.path.splitext(
-        filename
-    )[1].lower()
-
-    allowed = {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".jfif",
-        ".mp4",
-        ".avi",
-        ".mov",
-        ".mkv",
-        ".webm",
-    }
-
-    if ext not in allowed:
-
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "Use JPG/PNG/JFIF or "
-                    "MP4/AVI/MOV/MKV/WEBM."
-                ),
-            }
-        ), 400
-
-    unique_name = (
-        f"{int(time.time())}_"
-        f"{filename}"
-    )
-
-    path = os.path.join(
-        UPLOAD_DIR,
-        unique_name
-    )
-
-    file.save(path)
-
-    # --------------------------------------------------------
-    # IMAGE UPLOAD
-    # --------------------------------------------------------
-
-    if ext in {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".jfif",
-    }:
-
-        frame = cv2.imread(path)
-
-        if frame is None:
-
-            return jsonify(
-                {
-                    "ok": False,
-                    "error": (
-                        "Uploaded image "
-                        "could not be read."
-                    ),
-                }
-            ), 400
-
-        annotated = process_frame(
-            frame,
-            filename,
-            use_tracking=False,
-            confidence=0.25
-        )
-
-        out_name = (
-            f"processed_"
-            f"{unique_name.rsplit('.', 1)[0]}"
-            f".jpg"
-        )
-
-        out_path = os.path.join(
-            RESULT_DIR,
-            out_name
-        )
-
-        cv2.imwrite(
-            out_path,
-            annotated
-        )
-
-        with state_lock:
-
-            state["mode"] = "image"
-
-            state["source_name"] = (
-                filename
-            )
-
-            state["image_url"] = (
-                "/static/results/"
-                + out_name
-            )
-
-            state["video_path"] = None
-
-        return jsonify(
-            {
-                "ok": True,
-                "mode": "image",
-                "image_url": state[
-                    "image_url"
-                ],
-            }
-        )
-
-    # --------------------------------------------------------
-    # VIDEO UPLOAD
-    # --------------------------------------------------------
-
-    with state_lock:
-
-        state["mode"] = "video"
-
-        state["source_name"] = (
-            filename
-        )
-
-        state["video_path"] = path
-
-        state["image_url"] = None
-
-    return jsonify(
-        {
-            "ok": True,
-            "mode": "video",
-        }
-    )
-
-
-# ============================================================
-# BROWSER WEBCAM FRAME PROCESSING
+# BROWSER WEBCAM FOR RENDER
 # ============================================================
 
 @app.route(
@@ -1316,14 +822,10 @@ def process_webcam_frame():
 
     if "frame" not in request.files:
 
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "No webcam frame received."
-                ),
-            }
-        ), 400
+        return jsonify({
+            "ok": False,
+            "error": "No webcam frame received."
+        }), 400
 
     file = request.files["frame"]
 
@@ -1331,128 +833,495 @@ def process_webcam_frame():
 
     if not data:
 
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "Empty webcam frame."
-                ),
-            }
-        ), 400
-
-    # Convert uploaded JPEG bytes into OpenCV image
-    array = np.frombuffer(
-        data,
-        dtype=np.uint8
-    )
-
-    frame = cv2.imdecode(
-        array,
-        cv2.IMREAD_COLOR
-    )
-
-    if frame is None:
-
-        return jsonify(
-            {
-                "ok": False,
-                "error": (
-                    "Could not decode "
-                    "webcam frame."
-                ),
-            }
-        ), 400
+        return jsonify({
+            "ok": False,
+            "error": "Empty webcam frame."
+        }), 400
 
     try:
 
-        # Browser webcam uses a lower confidence
-        # threshold because webcam frames can be
-        # compressed or less clear.
+        array = np.frombuffer(
+            data,
+            dtype=np.uint8
+        )
+
+        frame = cv2.imdecode(
+            array,
+            cv2.IMREAD_COLOR
+        )
+
+        if frame is None:
+
+            return jsonify({
+                "ok": False,
+                "error": "Could not decode webcam frame."
+            }), 400
+
+        # ----------------------------------------------------
+        # Make Render inference lighter
+        # ----------------------------------------------------
+
+        height, width = frame.shape[:2]
+
+        max_width = 480
+
+        if width > max_width:
+
+            scale = max_width / width
+
+            frame = cv2.resize(
+                frame,
+                (
+                    int(width * scale),
+                    int(height * scale)
+                ),
+                interpolation=cv2.INTER_AREA
+            )
+
+        # ----------------------------------------------------
+        # Render uses prediction instead of tracking
+        # ----------------------------------------------------
+
         annotated = process_frame(
             frame,
             "Browser Webcam",
-            use_tracking=True,
-            confidence=0.15
+            use_tracking=False,
+            confidence=0.20,
+            imgsz=320
         )
 
-        ok, buffer = cv2.imencode(
+        success, buffer = cv2.imencode(
             ".jpg",
             annotated,
             [
-                int(
-                    cv2.IMWRITE_JPEG_QUALITY
-                ),
-                75,
+                int(cv2.IMWRITE_JPEG_QUALITY),
+                65
             ]
         )
 
-        if not ok:
+        if not success:
 
-            return jsonify(
-                {
-                    "ok": False,
-                    "error": (
-                        "Could not encode "
-                        "detection result."
-                    ),
-                }
-            ), 500
+            return jsonify({
+                "ok": False,
+                "error": "Could not encode detection result."
+            }), 500
 
         return Response(
             buffer.tobytes(),
             mimetype="image/jpeg",
             headers={
                 "Cache-Control": "no-store",
-                "Pragma": "no-cache",
-            },
+                "Pragma": "no-cache"
+            }
         )
 
-    except Exception as exc:
+    except Exception as error:
 
-        return jsonify(
-            {
-                "ok": False,
-                "error": str(exc),
-            }
-        ), 500
+        print(
+            "WEBCAM INFERENCE ERROR:",
+            repr(error)
+        )
+
+        return jsonify({
+            "ok": False,
+            "error": str(error)
+        }), 500
 
 
 # ============================================================
-# RESET VIOLATION LOG
+# IMAGE / VIDEO UPLOAD
 # ============================================================
 
 @app.route(
-    "/reset_log",
+    "/upload",
     methods=["POST"]
 )
-def reset_log():
+def upload():
 
-    ensure_log()
+    if "file" not in request.files:
 
-    with open(
-        LOG_FILE,
-        "w",
-        newline="",
-        encoding="utf-8"
-    ) as f:
+        return jsonify({
+            "ok": False,
+            "error": "No file uploaded."
+        }), 400
 
-        csv.writer(f).writerow(
-            [
-                "Date",
-                "Time",
-                "Worker ID",
-                "Violation",
-                "Source",
-            ]
+    file = request.files["file"]
+
+    if file.filename == "":
+
+        return jsonify({
+            "ok": False,
+            "error": "No filename."
+        }), 400
+
+    filename = os.path.basename(
+        file.filename
+    )
+
+    extension = os.path.splitext(
+        filename
+    )[1].lower()
+
+    input_path = os.path.join(
+        SOURCE_DIR,
+        filename
+    )
+
+    file.save(input_path)
+
+    # --------------------------------------------------------
+    # IMAGE
+    # --------------------------------------------------------
+
+    image_extensions = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".bmp"
+    ]
+
+    if extension in image_extensions:
+
+        image = cv2.imread(
+            input_path
         )
 
-    last_logged.clear()
+        if image is None:
 
-    return jsonify(
-        {
-            "ok": True
-        }
+            return jsonify({
+                "ok": False,
+                "error": "Could not read image."
+            }), 400
+
+        result = process_frame(
+            image,
+            filename,
+            use_tracking=False,
+            confidence=0.25,
+            imgsz=640
+        )
+
+        output_name = (
+            "result_"
+            + os.path.splitext(filename)[0]
+            + ".jpg"
+        )
+
+        output_path = os.path.join(
+            RESULT_DIR,
+            output_name
+        )
+
+        cv2.imwrite(
+            output_path,
+            result
+        )
+
+        return jsonify({
+            "ok": True,
+            "type": "image",
+            "filename": output_name,
+            "url": "/results/" + output_name
+        })
+
+    # --------------------------------------------------------
+    # VIDEO
+    # --------------------------------------------------------
+
+    video_extensions = [
+        ".mp4",
+        ".avi",
+        ".mov",
+        ".mkv",
+        ".webm"
+    ]
+
+    if extension in video_extensions:
+
+        cap = cv2.VideoCapture(
+            input_path
+        )
+
+        if not cap.isOpened():
+
+            return jsonify({
+                "ok": False,
+                "error": "Could not open video."
+            }), 400
+
+        fps = cap.get(
+            cv2.CAP_PROP_FPS
+        )
+
+        if fps <= 0:
+            fps = 20
+
+        width = int(
+            cap.get(
+                cv2.CAP_PROP_FRAME_WIDTH
+            )
+        )
+
+        height = int(
+            cap.get(
+                cv2.CAP_PROP_FRAME_HEIGHT
+            )
+        )
+
+        output_name = (
+            "result_"
+            + os.path.splitext(filename)[0]
+            + ".mp4"
+        )
+
+        output_path = os.path.join(
+            RESULT_DIR,
+            output_name
+        )
+
+        fourcc = cv2.VideoWriter_fourcc(
+            *"mp4v"
+        )
+
+        writer = cv2.VideoWriter(
+            output_path,
+            fourcc,
+            fps,
+            (width, height)
+        )
+
+        frame_count = 0
+
+        while True:
+
+            success, frame = cap.read()
+
+            if not success:
+                break
+
+            frame_count += 1
+
+            result = process_frame(
+                frame,
+                filename,
+                use_tracking=True,
+                confidence=0.25,
+                imgsz=416
+            )
+
+            writer.write(result)
+
+        cap.release()
+        writer.release()
+
+        return jsonify({
+            "ok": True,
+            "type": "video",
+            "filename": output_name,
+            "url": "/results/" + output_name
+        })
+
+    return jsonify({
+        "ok": False,
+        "error": "Unsupported file type."
+    }), 400
+
+
+# ============================================================
+# RESULT FILES
+# ============================================================
+
+@app.route("/results/<filename>")
+def results_file(filename):
+
+    safe_filename = os.path.basename(
+        filename
     )
+
+    path = os.path.join(
+        RESULT_DIR,
+        safe_filename
+    )
+
+    if not os.path.exists(path):
+
+        return jsonify({
+            "error": "Result file not found."
+        }), 404
+
+    return send_file(path)
+
+
+# ============================================================
+# USE EXISTING SOURCE FILE
+# ============================================================
+
+@app.route(
+    "/use_source",
+    methods=["POST"]
+)
+def use_source():
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    filename = data.get(
+        "filename",
+        ""
+    )
+
+    if not filename:
+
+        return jsonify({
+            "ok": False,
+            "error": "No source filename."
+        }), 400
+
+    filename = os.path.basename(
+        filename
+    )
+
+    path = os.path.join(
+        SOURCE_DIR,
+        filename
+    )
+
+    if not os.path.exists(path):
+
+        return jsonify({
+            "ok": False,
+            "error": "Source file not found."
+        }), 404
+
+    extension = os.path.splitext(
+        filename
+    )[1].lower()
+
+    image_extensions = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".bmp"
+    ]
+
+    # --------------------------------------------------------
+    # IMAGE
+    # --------------------------------------------------------
+
+    if extension in image_extensions:
+
+        image = cv2.imread(path)
+
+        if image is None:
+
+            return jsonify({
+                "ok": False,
+                "error": "Could not read image."
+            }), 400
+
+        result = process_frame(
+            image,
+            filename,
+            use_tracking=False,
+            confidence=0.25,
+            imgsz=640
+        )
+
+        output_name = (
+            "source_result_"
+            + os.path.splitext(filename)[0]
+            + ".jpg"
+        )
+
+        output_path = os.path.join(
+            RESULT_DIR,
+            output_name
+        )
+
+        cv2.imwrite(
+            output_path,
+            result
+        )
+
+        return jsonify({
+            "ok": True,
+            "type": "image",
+            "filename": output_name,
+            "url": "/results/" + output_name
+        })
+
+    return jsonify({
+        "ok": False,
+        "error": "This source type is not supported here."
+    }), 400
+
+
+# ============================================================
+# VIOLATION HISTORY DATA
+# ============================================================
+
+@app.route("/violation_history")
+def violation_history():
+
+    initialize_csv()
+
+    records = []
+
+    try:
+
+        with open(
+            violation_csv,
+            "r",
+            newline="",
+            encoding="utf-8"
+        ) as file:
+
+            reader = csv.DictReader(file)
+
+            for row in reader:
+
+                if any(
+                    str(value or "").strip()
+                    for value in row.values()
+                ):
+
+                    records.append({
+                        "Date": row.get("Date", ""),
+                        "Time": row.get("Time", ""),
+                        "Worker ID": row.get("Worker ID", ""),
+                        "Violation": row.get("Violation", ""),
+                        "Source": row.get("Source", "")
+                    })
+
+    except Exception as error:
+
+        print(
+            "HISTORY READ ERROR:",
+            repr(error)
+        )
+
+        return jsonify({
+            "ok": False,
+            "records": [],
+            "error": str(error)
+        }), 500
+
+    # Newest violation first.
+    records.reverse()
+
+    response = jsonify({
+        "ok": True,
+        "records": records
+    })
+
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    return response
 
 
 # ============================================================
@@ -1462,29 +1331,109 @@ def reset_log():
 @app.route("/download_log")
 def download_log():
 
-    ensure_log()
+    if not os.path.exists(violation_csv):
 
-    return send_from_directory(
-        BASE_DIR,
-        "violations.csv",
-        as_attachment=True
+        initialize_csv()
+
+    response = send_file(
+        violation_csv,
+        as_attachment=True,
+        download_name="violations.csv",
+        max_age=0
     )
+
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    return response
 
 
 # ============================================================
-# APPLICATION START
+# RESET CSV
+# ============================================================
+
+@app.route(
+    "/reset_log",
+    methods=["POST"]
+)
+def reset_log():
+
+    initialize_csv()
+
+    with open(
+        violation_csv,
+        "w",
+        newline="",
+        encoding="utf-8"
+    ) as file:
+
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Date",
+            "Time",
+            "Worker ID",
+            "Violation",
+            "Source"
+        ])
+
+    return jsonify({
+        "ok": True
+    })
+
+
+# ============================================================
+# SOURCE FILE LIST
+# ============================================================
+
+@app.route("/source_files")
+def source_files():
+
+    files = []
+
+    for filename in os.listdir(
+        SOURCE_DIR
+    ):
+
+        path = os.path.join(
+            SOURCE_DIR,
+            filename
+        )
+
+        if os.path.isfile(path):
+
+            files.append(filename)
+
+    return jsonify(files)
+
+
+# ============================================================
+# START SERVER
 # ============================================================
 
 if __name__ == "__main__":
 
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
+
+    print()
+    print("=" * 60)
+    print("AI-BASED PPE DETECTION SYSTEM")
+    print("=" * 60)
+    print(f"Running on port: {port}")
+    print("Local webcam mode: OpenCV + YOLO Tracking")
+    print("Render webcam mode: Browser + YOLO Prediction")
+    print("=" * 60)
+    print()
+
     app.run(
         host="0.0.0.0",
-        port=int(
-            os.environ.get(
-                "PORT",
-                5000
-            )
-        ),
+        port=port,
         debug=False,
         threaded=True,
         use_reloader=False
